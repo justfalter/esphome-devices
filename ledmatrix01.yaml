@@ -1,0 +1,169 @@
+esphome:
+  name: ledbox01
+  platform: ESP32
+  board: esp32doit-devkit-v1
+
+<<: !include ./secrets.yaml
+
+status_led:
+  pin: GPIO2
+
+time:
+  - platform: sntp
+    id: sntp_time
+    servers:
+      - "ntp01.broken.kneecaps.net"
+      - "ntp02.broken.kneecaps.net"
+
+# Enable logging
+logger:
+  level: DEBUG
+
+mqtt:
+  broker: mqtt01.mgmt.kneecaps.net
+  birth_message:
+    topic: ledmatrix/ledbox01/connected
+    payload: "1"
+  will_message:
+    topic: ledmatrix/ledbox01/disconnected
+    payload: "1"
+  shutdown_message:
+    topic: ledmatrix/ledbox01/disconnected
+    payload: "1"
+
+image:
+  - file: images/mario.png
+    id: image_mario
+    type: RGB24
+  - file: images/mario_flower.png
+    id: image_mario_flower
+    type: RGB24
+  - file: images/link.png
+    id: image_link
+    type: RGB24
+  - file: images/bubblebobble.png
+    id: image_bubblebobble
+    type: RGB24
+  - file: images/bubblebobble2.png
+    id: image_bubblebobble2
+    type: RGB24
+  - file: images/finn.png
+    id: image_finn
+    type: RGB24
+  - file: images/goomba.png
+    id: image_goomba
+    type: RGB24
+  - file: images/leonardo.png
+    id: image_leonardo
+    type: RGB24
+  - file: images/simpsons_snowball.png
+    id: image_simpsons_snowball
+    type: RGB24
+  - file: images/shyguy.png
+    id: image_shyguy
+    type: RGB24
+  - file: images/toadstool.png
+    id: image_toadstool
+    type: RGB24
+  - file: images/yoshi.png
+    id: image_yoshi
+    type: RGB24
+  - file: images/zelda.png
+    id: image_zelda
+    type: RGB24
+
+light:
+  - platform: fastled_clockless
+    chipset: WS2812B
+    pin: GPIO4
+    num_leds: 64
+    rgb_order: GRB
+    name: "led_matrix"
+    id: led_matrix
+    default_transition_length: 0s
+    color_correct: [50%, 50%, 50%]
+    internal: false
+    restore_mode: ALWAYS_ON
+    effects:
+      - flicker:
+      - addressable_rainbow:
+      - addressable_color_wipe:
+      - addressable_scan:
+      - addressable_twinkle:
+      - addressable_random_twinkle:
+      - addressable_fireworks:
+      - addressable_flicker:
+      
+display:
+  - platform: addressable_light_display
+    id: my_display
+    addressable_light_id: led_matrix
+    width: 8
+    height: 8
+    rotation: 180°
+    update_interval: 16ms
+    pages:
+      - id: page_mario
+        lambda: |-
+          it.image(0,0,id(image_mario));
+      - id: page_yoshi
+        lambda: |-
+          it.image(0,0,id(image_yoshi));
+      - id: page_toadstool
+        lambda: |-
+          it.image(0,0,id(image_toadstool));
+      - id: page_goomba
+        lambda: |-
+          it.image(0,0,id(image_goomba));
+      - id: page_mario_flower
+        lambda: |-
+          it.image(0,0,id(image_mario_flower));
+      - id: page_shyguy
+        lambda: |-
+          it.image(0,0,id(image_shyguy));
+      - id: page_link
+        lambda: |-
+          it.image(0,0,id(image_link));
+      - id: page_finn
+        lambda: |-
+          it.image(0,0,id(image_finn));
+      - id: page_bubblebobble
+        lambda: |-
+          it.image(0,0,id(image_bubblebobble));
+      - id: page_bubblebobble2
+        lambda: |-
+          it.image(0,0,id(image_bubblebobble2));
+      - id: page_leonardo
+        lambda: |-
+          it.image(0,0,id(image_leonardo));
+      - id: page_simpsons_snowball
+        lambda: |-
+          it.image(0,0,id(image_simpsons_snowball));
+#    lambda: |-
+#      Color red = Color(0xFF0000);
+#      Color green = Color(0x00FF00);
+#      Color blue = Color(0x0000FF);
+#      Color black = Color(0x000000);
+#      it.rectangle(0, 0, 8, 8, red);
+#      it.rectangle(1, 1, 6, 6, green);
+#      it.rectangle(2, 2, 4, 4, blue);
+#      it.rectangle(3, 3, 2, 2, red);
+
+switch:
+  - platform: template
+    id: control_display
+    name: "Control Display"
+    lambda: |-
+      return id(my_display).get_enabled();
+    turn_on_action:
+      - lambda: |-
+          id(my_display).set_enabled(true);
+    turn_off_action:
+      - lambda: |-
+          id(my_display).set_enabled(false);
+
+interval:
+  - interval: 3s
+    then:
+      - display.page.show_next: my_display
+      - component.update: my_display

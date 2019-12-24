@@ -1,0 +1,85 @@
+esphome:
+  name: led-sign-32x8
+  platform: ESP32
+  board: esp32doit-devkit-v1
+
+<<: !include ./secrets-led-sign-32x8.yaml
+
+time:
+  - platform: sntp
+    id: sntp_time
+    servers:
+      - "ntp01.broken.kneecaps.net"
+      - "ntp02.broken.kneecaps.net"
+
+# Enable logging
+logger:
+  level: DEBUG
+
+mqtt:
+  broker: mqtt01.mgmt.kneecaps.net
+  birth_message:
+    topic: ledmatrix/led-sign-32x8/connected
+    payload: "1"
+  will_message:
+    topic: ledmatrix/led-sign-32x8/disconnected
+    payload: "1"
+  shutdown_message:
+    topic: ledmatrix/led-sign-32x8/disconnected
+    payload: "1"
+
+light:
+  - platform: fastled_clockless
+    chipset: WS2812B
+    pin: GPIO4
+    num_leds: 256
+    rgb_order: GRB
+    name: "led_sign_32x8"
+    id: led_sign_32x8
+    default_transition_length: 0s
+    color_correct: [50%, 50%, 50%]
+    internal: false
+    restore_mode: ALWAYS_ON
+
+font:
+  - file: fonts/tom-thumb-tweak-6.pil
+    id: small
+    size: 6
+    
+display:
+  - platform: addressable_light
+    id: my_display
+    addressable_light_id: led_sign_32x8
+    width: 32
+    height: 8
+    rotation: 0°
+    update_interval: 50ms
+    pixel_mapper: |-
+      if (x % 2 == 0) {
+        return (x * 8) + y;
+      }
+      return (x * 8) + (7 - y);
+    pages:
+      - id: page_time
+        lambda: |-
+          auto now = id(sntp_time).now();
+          it.strftime(16, 4, id(small), TextAlign::CENTER, "%I:%M %p", now);
+
+switch:
+  - platform: template
+    id: control_display_32x8
+    name: "Control Display - LED Sign 32x8"
+    lambda: |-
+      return id(my_display).get_enabled();
+    turn_on_action:
+      - lambda: |-
+          id(my_display).set_enabled(true);
+    turn_off_action:
+      - lambda: |-
+          id(my_display).set_enabled(false);
+
+interval:
+  - interval: 1s
+    then:
+      - display.page.show_next: my_display
+      - component.update: my_display
