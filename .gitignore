@@ -2,7 +2,7 @@ pyenv/
 buttonbox/
 pyenv/
 .vscode/
-secrets*.yaml
-secrets*.yml
+secrets*
+!secrets.yaml.example
 .esphome/
 .DS_Store
