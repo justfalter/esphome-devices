@@ -1,0 +1,404 @@
+# Buttonbox - 6 buttons, 2 rotary encoders w/ buttons
+
+esphome:
+  name: buttonbox
+  platform: ESP32
+  board: featheresp32
+  platformio_options:
+    board_build.f_cpu: 80000000L
+  includes:
+    - src/lifx/lifx.h
+  on_boot:
+    priority: 800.0
+    then:
+      - output.turn_on: gpio_14
+  on_shutdown:
+    then:
+      - output.turn_off: gpio_14
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  domain: !secret host_domain
+  fast_connect: true
+  power_save_mode: LIGHT
+
+ota:
+  password: !secret ota_password
+
+api:
+  password: !secret api_password
+
+mqtt:
+  broker: !secret mqtt_broker
+  username: !secret mqtt_username
+  password: !secret mqtt_password
+  discovery: false
+  discovery_object_id_generator: "device_name"
+  discovery_unique_id_generator: mac
+
+status_led:
+  pin:
+    number: 13
+
+# Enable logging
+# logger:
+#   level: DEBUG
+
+i2c:
+  sda: SDA
+  scl: SCL
+  scan: False
+
+mcp23017:
+  - id: 'mcp23017_hub'
+    address: 0x20
+
+globals:
+  - id: global_idle_counter
+    type: "int"
+    restore_value: no
+    initial_value: "0"
+  - id: global_idle_timeout
+    type: "int"
+    restore_value: no
+    initial_value: '120'
+  - id: global_last_set_color
+    type: "uint32_t"
+    restore_value: no
+    initial_value: '0'
+
+script:
+  - id: reset_idle
+    then:
+      - lambda: |-
+          id(global_idle_counter) = 0;
+
+  - id: notification_set_color
+    then:
+      - lambda: |-
+          const uint32_t now = millis();
+          const uint32_t lv = id(global_last_set_color);
+          if (lv == 0 || now - lv > 100) {
+            id(global_last_set_color) = now;
+            set_color((unsigned int)((id(hue).state/359.0)*65535), (unsigned int) ((id(saturation).state/100.0)*65535), 3500);
+          }
+
+interval:
+  - interval: 1s
+    then:
+      - if:
+          condition:
+            lambda: |-
+              return id(global_idle_counter) >= id(global_idle_timeout);
+          then:
+            - logger.log: "No activity after 2 minutes. Entering deep sleep."
+            - deep_sleep.enter: deep_sleep_1
+          else:
+            - lambda: |-
+                id(global_idle_counter) += 1;
+
+output:
+  - platform: gpio
+    pin: 14
+    id: gpio_14
+
+deep_sleep:
+  id: deep_sleep_1
+  wakeup_pin: 27
+  wakeup_pin_mode: INVERT_WAKEUP
+
+number:
+  - platform: template
+    name: hue
+    id: hue
+    optimistic: true
+    min_value: 0
+    max_value: 359
+    restore_value: false
+    initial_value: 0
+    step: 6
+    on_value: 
+      then:
+        - script.execute: notification_set_color
+
+  - platform: template
+    name: saturation
+    id: saturation
+    optimistic: true
+    min_value: 0
+    max_value: 100
+    restore_value: false
+    initial_value: 100
+    step: 5
+    on_value: 
+      then:
+        - script.execute: notification_set_color
+
+  - platform: template
+    name: color_red
+    id: color_red
+    optimistic: true
+    min_value: 0
+    max_value: 255
+    step: 16
+
+  - platform: template
+    name: color_green
+    id: color_green
+    optimistic: true
+    min_value: 0
+    max_value: 255
+    step: 16
+
+  - platform: template
+    name: color_blue
+    id: color_blue
+    optimistic: true
+    min_value: 0
+    max_value: 255
+    step: 16
+
+sensor:
+  - platform: adc
+    pin: A13
+    id: battery
+    name: battery
+    device_class: battery
+    accuracy_decimals: 0
+    update_interval: 60s 
+    entity_category: diagnostic
+    filters:
+      - lambda: return 100 * (x / 1.1);
+    #  - lambda: return ((x / 4095.0) * 2 * 1.1 * 3.3) / 4.2;
+    #unit_of_measurement: "%"
+
+  - platform: 'rotary_encoder'
+    id: 'knob_left'
+    name: "knob_left"
+    pin_a: 34
+    pin_b: 25
+    resolution: 1
+    #min_value: 0
+    #max_value: 31
+    on_value:
+      then:
+        - script.execute: reset_idle
+    on_clockwise:
+      then:
+        - number.increment:
+            id: hue
+            cycle: true
+    on_anticlockwise:
+      then:
+        - number.decrement:
+            id: hue
+            cycle: true
+
+  - platform: 'rotary_encoder'
+    id: 'knob_right'
+    name: "knob_right"
+    pin_a: 33
+    pin_b: 15
+    resolution: 1
+    #min_value: 0
+    #max_value: 31
+    on_value:
+      then:
+        - script.execute: reset_idle
+    on_clockwise:
+      then:
+        - number.increment:
+            id: saturation
+            cycle: false
+    on_anticlockwise:
+      then:
+        - number.decrement:
+            id: saturation
+            cycle: false
+
+switch:
+  - platform: gpio
+    name: button_red1_led
+    id: button_red1_led
+    restore_mode: ALWAYS_OFF
+    pin:
+      mcp23xxx: mcp23017_hub
+      number: 8
+      mode: OUTPUT
+
+  - platform: gpio
+    name: button_green1_led
+    id: button_green1_led
+    restore_mode: ALWAYS_OFF
+    pin:
+      mcp23xxx: mcp23017_hub
+      number: 10
+      mode: OUTPUT
+  
+  - platform: gpio
+    name: button_blue1_led
+    id: button_blue1_led
+    restore_mode: ALWAYS_OFF
+    pin:
+      mcp23xxx: mcp23017_hub
+      number: 12
+      mode: OUTPUT
+  
+  - platform: gpio
+    name: button_red2_led
+    id: button_red2_led
+    restore_mode: ALWAYS_OFF
+    pin:
+      mcp23xxx: mcp23017_hub
+      number: 9
+      mode: OUTPUT
+  
+  - platform: gpio
+    name: button_green2_led
+    id: button_green2_led
+    restore_mode: ALWAYS_OFF
+    pin:
+      mcp23xxx: mcp23017_hub
+      number: 11
+      mode: OUTPUT
+  
+  - platform: gpio
+    name: button_blue2_led
+    id: button_blue2_led
+    restore_mode: ALWAYS_OFF
+    pin:
+      mcp23xxx: mcp23017_hub
+      number: 13
+      mode: OUTPUT
+
+binary_sensor:
+  - platform: gpio
+    name: knob_left_button
+    id: knob_left_button
+    pin:
+      number: 26
+      inverted: true
+
+  - platform: gpio
+    name: knob_right_button
+    id: knob_right_button
+    pin:
+      number: 32
+      inverted: true
+
+  - platform: gpio
+    name: button_red1
+    id: button_red1
+    pin:
+      mcp23xxx: mcp23017_hub
+      number: 0
+      mode: INPUT_PULLUP
+      inverted: True
+    on_press:
+      then:
+        - script.execute: reset_idle
+        - switch.turn_on: button_red1_led
+        - number.increment:
+            id: color_red
+            cycle: false
+        - lambda: |-
+            set_waveform((unsigned int)((id(hue).state/359.0)*65535), (unsigned int) ((id(saturation).state/100.0)*65535), 3500, 1000, 10, 0, 4);
+    on_release:
+      then:
+        - switch.turn_off: button_red1_led
+  
+  - platform: gpio
+    name: button_green1
+    id: button_green1
+    pin:
+      mcp23xxx: mcp23017_hub
+      number: 2
+      mode: INPUT_PULLUP
+      inverted: True
+    on_press:
+      then:
+        - script.execute: reset_idle
+        - switch.turn_on: button_green1_led
+        - number.increment:
+            id: color_green
+            cycle: false
+    on_release:
+      then:
+        - switch.turn_off: button_green1_led
+
+  - platform: gpio
+    name: button_blue1
+    id: button_blue1
+    pin:
+      mcp23xxx: mcp23017_hub
+      number: 4
+      mode: INPUT_PULLUP
+      inverted: True
+    on_press:
+      then:
+        - script.execute: reset_idle
+        - switch.turn_on: button_blue1_led
+        - number.increment:
+            id: color_blue
+            cycle: false
+    on_release:
+      then:
+        - switch.turn_off: button_blue1_led
+
+  - platform: gpio
+    name: button_red2
+    id: button_red2
+    pin:
+      mcp23xxx: mcp23017_hub
+      number: 1
+      mode: INPUT_PULLUP
+      inverted: True
+    on_press:
+      then:
+        - script.execute: reset_idle
+        - switch.turn_on: button_red2_led
+        - number.decrement:
+            id: color_red
+            cycle: false
+    on_release:
+      then:
+        - switch.turn_off: button_red2_led
+  
+  - platform: gpio
+    name: button_green2
+    id: button_green2
+    pin:
+      mcp23xxx: mcp23017_hub
+      number: 3
+      mode: INPUT_PULLUP
+      inverted: True
+    on_press:
+      then:
+        - script.execute: reset_idle
+        - switch.turn_on: button_green2_led
+        - number.decrement:
+            id: color_green
+            cycle: false
+    on_release:
+      then:
+        - switch.turn_off: button_green2_led
+  
+  - platform: gpio
+    name: button_blue2
+    id: button_blue2
+    pin:
+      mcp23xxx: mcp23017_hub
+      number: 5
+      mode: INPUT_PULLUP
+      inverted: True
+    on_press:
+      then:
+        - script.execute: reset_idle
+        - switch.turn_on: button_blue2_led
+        - number.decrement:
+            id: color_blue
+            cycle: false
+    on_release:
+      then:
+        - switch.turn_off: button_blue2_led
