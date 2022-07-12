@@ -1,0 +1,190 @@
+esphome:
+  name: clocky
+  platform: ESP32
+  board: featheresp32
+  
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  domain: !secret host_domain
+  fast_connect: true
+  power_save_mode: LIGHT
+
+ota:
+  password: !secret ota_password
+
+api:
+  password: !secret api_password
+
+mqtt:
+  broker: !secret mqtt_broker
+  username: !secret mqtt_username
+  password: !secret mqtt_password
+  discovery: false
+  discovery_object_id_generator: "device_name"
+  discovery_unique_id_generator: mac
+
+logger:
+  level: INFO
+
+globals:
+  # Temperature offset in degrees F
+  - id: global_temp_offset_f
+    type: "int"
+    restore_value: yes
+    initial_value: "0"
+  - id: global_page
+    type: "int"
+    restore_value: no
+    initial_value: '0'
+  - id: global_home_lat
+    type: "double"
+    restore_value: no
+    initial_value: "41.792590"
+  - id: global_home_lng
+    type: "double"
+    restore_value: no
+    initial_value: "-88.012455"
+
+i2c:
+  # For communication with the temperature sensor and the LCD.
+  sda: GPIO23
+  scl: GPIO22
+
+uart:
+  # For communication with the GPS unit
+  rx_pin: 16
+  tx_pin: 17
+  baud_rate: 9600
+
+gps:
+  # https://esphome.io/components/gps.html
+  id: the_gps
+
+time:
+# https://esphome.io/components/gps.html
+  - platform: gps
+    id: gps_time
+    timezone: "America/Chicago"
+  # - platform: sntp
+  #   id: sntp_time
+  #   servers:
+  #     - !secret ntp_server
+
+
+sensor:
+  # https://esphome.io/components/sensor/rotary_encoder.html
+  - platform: rotary_encoder
+    name: "knob"
+    id: knob
+    pin_a: 33
+    pin_b: 15
+    min_value: 0
+    max_value: 1
+    on_value:
+      then:
+          - lambda: |-
+              id(global_page) = int(id(knob).state);
+
+  # https://esphome.io/cookbook/bme280_environment.html
+  - platform: bme280
+    temperature:
+      name: "temp"
+      id: temp
+      oversampling: 1x
+      filters:
+          - lambda: return x * (9.0/5.0) + 32.0 + id(global_temp_offset_f);
+      unit_of_measurement: "°F"
+    pressure:
+      name: "pressure"
+      id: "pressure"
+      oversampling: 1x
+    humidity:
+      name: "humidity"
+      id: humidity
+      oversampling: 1x
+    address: 0x76
+    update_interval: 60s
+
+# This is just the button on the knob.
+binary_sensor:
+  - platform: gpio
+    name: knob_button
+    id: knob_button
+    pin:
+      number: 32
+      inverted: true
+
+display:
+  # https://esphome.io/components/display/lcd_display.html
+  - platform: lcd_pcf8574
+    dimensions: 20x4
+    address: 0x27
+    update_interval: 0.1s
+    # This big heap of garbage is actuall C++, and it takes care of
+    # rendering the CLD display.
+    lambda: |-
+      TinyGPSPlus &g = id(the_gps).get_tiny_gps();
+      auto time = id(gps_time).now();
+      if (id(global_page) == 0) {
+          // Default page
+          if (time.is_valid()) {
+          it.strftime(0, 0, "%Y/%m/%d %H:%M:%S", id(gps_time).now());
+          } else {
+          it.printf(0, 0, "Time unknown");
+          }
+
+          if (g.location.isValid()) {
+          double course = g.courseTo( g.location.lat(), g.location.lng(), id(global_home_lat), id(global_home_lng));
+          auto cardinal = g.cardinal(course);
+
+          double milesAway = 0.000621371 * g.distanceBetween( g.location.lat(), g.location.lng(), id(global_home_lat), id(global_home_lng));
+          if (milesAway < 1.0) {
+              it.printf(0, 1, "Home: %.0f ft %3s", milesAway * 5280, cardinal);
+          } else {
+              it.printf(0, 1, "Home: %.1f mi %3s", milesAway, cardinal);
+          }
+          it.printf(0, 2, "Alt: %d ft", int(g.altitude.feet()));
+          } else {
+          it.printf(0, 1, "Home: ?");
+          }
+
+          it.printf(0,3, "%3dF H%3d%% %4dhPa", int(id(temp).state), int(id(humidity).state), int(id(pressure).state));
+      } else if(id(global_page) == 1) {
+          // GPS details page
+          if (g.location.isValid()) {
+          it.printf(0,0, "Lat: %.7f", g.location.lat());
+          it.printf(0,1, "Lon: %.7f", g.location.lng());
+          } else {
+          it.printf(0,0, "Lat: ?");
+          it.printf(0,1, "Lon: ?");
+          }
+
+          if (g.satellites.isValid()) {
+          it.printf(0,2, "Sats: %d", g.satellites.value());
+          } else {
+          it.printf(0,2, "Sats: ?");
+          }
+
+          // Accuracy
+          if (g.hdop.isValid()) {
+          auto hdop = g.hdop.hdop();
+          std::string v = "Poor";
+          if (hdop <= 1.0) {
+              v = "Ideal";
+          } else if (hdop <= 2.0) {
+              v = "Excellent";
+          } else if (hdop <= 5.0) {
+              v = "Good";
+          } else if (hdop <= 10.0) {
+              v = "Moderate";
+          } else if (hdop <= 20.0) {
+              v = "Fair";
+          }
+          it.printf(0,3, "Acy: %s (%0.1f)", v.c_str(), hdop);
+          } else {
+          it.printf(0, 3, "Acy: ?");
+          }
+      } else {
+          it.printf(0,0, "ERROR: UNKNOWN PAGE VALUE: %d", int(id(global_page)));
+      }

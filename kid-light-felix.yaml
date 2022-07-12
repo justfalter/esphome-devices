@@ -1,0 +1,149 @@
+esphome:
+  name: kid-light-felix
+    
+
+esp32:
+  board: wemos_d1_mini32
+  
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  domain: !secret host_domain
+  fast_connect: true
+  power_save_mode: LIGHT
+
+ota:
+  password: !secret ota_password
+
+api:
+  password: !secret api_password
+
+mqtt:
+  broker: !secret mqtt_broker
+  username: !secret mqtt_username
+  password: !secret mqtt_password
+  discovery: false
+  discovery_object_id_generator: "device_name"
+  discovery_unique_id_generator: mac
+
+time:
+  - platform: sntp
+    id: sntp_time
+    servers:
+      - !secret ntp_server
+
+globals:
+  - id: global_white_button_press_start
+    type: "uint32_t"
+    restore_value: no
+    initial_value: "0"
+  - id: global_green_button_press_start
+    type: "uint32_t"
+    restore_value: no
+    initial_value: "0"
+      
+# # Enable logging
+logger:
+  level: NONE
+  baud_rate: 0
+#   level: DEBUG
+  
+binary_sensor:
+  - platform: gpio
+    name: white_button
+    id: white_button
+    pin:
+      number: 16
+      inverted: true
+      mode:
+        input: true
+        pullup: true
+    on_press:
+      then:
+        - lambda: |-
+            id(global_white_button_press_start) = millis();
+    on_release:
+      then:
+        - lambda: |-
+            id(global_white_button_press_start) = 0;
+            
+    on_click: 
+      then:
+        - light.toggle: led_strip
+
+  - platform: gpio
+    name: green_button
+    id: green_button
+    pin:
+      number: 17
+      inverted: true
+      mode:
+        input: true
+        pullup: true
+    on_press:
+      then:
+        - lambda: |-
+            id(global_green_button_press_start) = millis();
+    on_release:
+      then:
+        - lambda: |-
+            id(global_green_button_press_start) = 0;
+
+# Candle: 1900K: 255, 147, 41
+# 40W Tungsten: 2600K: 255, 197, 143
+# 100W Tungsten: 2850: 255, 214, 170
+light:
+  - platform: fastled_clockless
+    chipset: WS2812
+    pin: GPIO23
+    num_leds: 59
+    rgb_order: GRB
+    name: led_strip
+    id: led_strip
+    default_transition_length: 0 milliseconds 
+    color_correct: [100%,100%,100%]
+    on_turn_on: 
+      - lambda: |-
+          auto call = id(led_strip).turn_on();
+          //call.set_rgb(255.0/255.0,147.0/255.0,41.0/255.0);
+          call.set_rgb(255.0/255.0,197.0/255.0,143.0/255.0);
+          call.perform();
+
+    effects:
+      - addressable_rainbow:
+      - addressable_color_wipe:
+      - addressable_scan:
+      - addressable_twinkle:
+      - addressable_random_twinkle:
+      - addressable_fireworks:
+      - addressable_flicker:
+
+interval:
+  - interval: 200ms
+    then:
+      - if:
+          condition:
+            # the white button has been held down for more than 1 second.
+            - lambda: |-
+                float brightness = 0.0;
+                id(led_strip).current_values_as_brightness(&brightness);
+                return id(global_white_button_press_start) > 0 &&
+                  (millis() - id(global_white_button_press_start)) >= 1000 &&
+                  brightness < 1.0;
+          then:
+            - light.dim_relative: 
+                id: led_strip
+                relative_brightness: 5%
+      - if:
+          condition:
+            # the green button has been held down for more than 1 second.
+            - lambda: |-
+                float brightness = 0.0;
+                id(led_strip).current_values_as_brightness(&brightness);
+                return id(global_green_button_press_start) > 0 && 
+                  (millis() - id(global_green_button_press_start)) >= 1000 &&
+                  brightness > 0.01;
+          then:
+            - light.dim_relative: 
+                id: led_strip
+                relative_brightness: -5%
