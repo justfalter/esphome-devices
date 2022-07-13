@@ -3,33 +3,36 @@ esphome:
   platform: ESP32
   board: esp32doit-devkit-v1
 
-<<: !include ./secrets.yaml
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  domain: !secret host_domain
+  fast_connect: true
+  power_save_mode: LIGHT
 
-status_led:
-  pin: GPIO2
+ota:
+  password: !secret ota_password
+
+api:
+  password: !secret api_password
+
+mqtt:
+  broker: !secret mqtt_broker
+  username: !secret mqtt_username
+  password: !secret mqtt_password
+  discovery: false
+  discovery_object_id_generator: "device_name"
+  discovery_unique_id_generator: mac
 
 time:
   - platform: sntp
     id: sntp_time
     servers:
-      - "ntp01.broken.kneecaps.net"
-      - "ntp02.broken.kneecaps.net"
+      - !secret ntp_server
 
 # Enable logging
 logger:
   level: DEBUG
-
-mqtt:
-  broker: mqtt01.mgmt.kneecaps.net
-  birth_message:
-    topic: ledmatrix/ledbox01/connected
-    payload: "1"
-  will_message:
-    topic: ledmatrix/ledbox01/disconnected
-    payload: "1"
-  shutdown_message:
-    topic: ledmatrix/ledbox01/disconnected
-    payload: "1"
 
 image:
   - file: images/mario.png
@@ -81,7 +84,7 @@ light:
     name: "led_matrix"
     id: led_matrix
     default_transition_length: 0s
-    color_correct: [50%, 50%, 50%]
+    color_correct: [100%, 100%, 100%]
     internal: false
     restore_mode: ALWAYS_ON
     effects:
@@ -95,8 +98,8 @@ light:
       - addressable_flicker:
       
 display:
-  - platform: addressable_light_display
-    id: my_display
+  - platform: addressable_light
+    id: addressable_display
     addressable_light_id: led_matrix
     width: 8
     height: 8
@@ -154,16 +157,16 @@ switch:
     id: control_display
     name: "Control Display"
     lambda: |-
-      return id(my_display).get_enabled();
+      return id(addressable_display).get_enabled();
     turn_on_action:
       - lambda: |-
-          id(my_display).set_enabled(true);
+          id(addressable_display).set_enabled(true);
     turn_off_action:
       - lambda: |-
-          id(my_display).set_enabled(false);
+          id(addressable_display).set_enabled(false);
 
 interval:
   - interval: 3s
     then:
-      - display.page.show_next: my_display
-      - component.update: my_display
+      - display.page.show_next: addressable_display
+      - component.update: addressable_display
