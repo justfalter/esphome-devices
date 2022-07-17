@@ -53,7 +53,7 @@ globals:
 
 # # Enable logging
 logger:
-  level: DEBUG
+  level: INFO
   baud_rate: 0
 #   level: DEBUG
   
@@ -162,11 +162,11 @@ number:
     unit_of_measurement: percent
 
 light:
-  - platform: fastled_clockless
-    chipset: WS2812
+  - platform: neopixelbus
+    variant: ws2812x
     pin: GPIO23
     num_leds: 59
-    rgb_order: GRB
+    type: GRB
     name: led_strip
     id: led_strip
     default_transition_length: 0 milliseconds 

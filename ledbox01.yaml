@@ -160,11 +160,11 @@ number:
     unit_of_measurement: percent
 
 light:
-  - platform: fastled_clockless
-    chipset: WS2812B
+  - platform: neopixelbus
+    variant: ws2812x
     pin: GPIO16
     num_leds: 64
-    rgb_order: GRB
+    type: GRB
     name: "led_matrix"
     id: led_matrix
     default_transition_length: 0 milliseconds 

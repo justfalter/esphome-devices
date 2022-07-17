@@ -35,11 +35,12 @@ logger:
   level: DEBUG
 
 light:
-  - platform: fastled_clockless
-    chipset: WS2812B
+  - platform: neopixelbus
+    variant: ws2812x
+    method: 
     pin: GPIO4
     num_leds: 256
-    rgb_order: GRB
+    type: GRB
     name: "led_sign_32x8"
     id: led_sign_32x8
     default_transition_length: 0s
