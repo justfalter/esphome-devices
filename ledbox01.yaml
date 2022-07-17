@@ -30,65 +30,153 @@ time:
     servers:
       - !secret ntp_server
 
+globals:
+  - id: global_white_button_press_start
+    type: "uint32_t"
+    restore_value: no
+    initial_value: "0"
+  - id: global_green_button_press_start
+    type: "uint32_t"
+    restore_value: no
+    initial_value: "0"
+  - id: global_off_start
+    type: "uint32_t"
+    restore_value: no
+    initial_value: "0"
+  - id: global_reset_brightness
+    type: "bool"
+    restore_value: no
+    initial_value: "false"
+
 # Enable logging
 logger:
-  level: DEBUG
+  baud_rate: 0
+  level: NONE
 
-image:
-  - file: images/mario.png
-    id: image_mario
-    type: RGB24
-  - file: images/mario_flower.png
-    id: image_mario_flower
-    type: RGB24
-  - file: images/link.png
-    id: image_link
-    type: RGB24
-  - file: images/bubblebobble.png
-    id: image_bubblebobble
-    type: RGB24
-  - file: images/bubblebobble2.png
-    id: image_bubblebobble2
-    type: RGB24
-  - file: images/finn.png
-    id: image_finn
-    type: RGB24
-  - file: images/goomba.png
-    id: image_goomba
-    type: RGB24
-  - file: images/leonardo.png
-    id: image_leonardo
-    type: RGB24
-  - file: images/simpsons_snowball.png
-    id: image_simpsons_snowball
-    type: RGB24
-  - file: images/shyguy.png
-    id: image_shyguy
-    type: RGB24
-  - file: images/toadstool.png
-    id: image_toadstool
-    type: RGB24
-  - file: images/yoshi.png
-    id: image_yoshi
-    type: RGB24
-  - file: images/zelda.png
-    id: image_zelda
-    type: RGB24
+binary_sensor:
+  - platform: gpio
+    name: white_button
+    id: white_button
+    pin:
+      # RED WIRE
+      number: 32
+      inverted: true
+      mode:
+        input: true
+        pullup: true
+    on_press:
+      then:
+        - lambda: |-
+            id(global_white_button_press_start) = millis();
+    on_release:
+      then:
+        - lambda: |-
+            id(global_white_button_press_start) = 0;
+            
+    on_click: 
+      then:
+        - light.toggle: led_matrix
+
+  - platform: gpio
+    name: green_button
+    id: green_button
+    pin:
+      # GREEN WHITE
+      number: 33
+      inverted: true
+      mode:
+        input: true
+        pullup: true
+    on_press:
+      then:
+        - lambda: |-
+            id(global_green_button_press_start) = millis();
+    on_release:
+      then:
+        - lambda: |-
+            id(global_green_button_press_start) = 0;
+
+number:
+  - platform: template
+    id: auto_off_seconds
+    name: auto_off_seconds
+    min_value: 0
+    max_value: 3600
+    step: 1
+    initial_value: 600
+    optimistic: True
+    restore_value: True
+    unit_of_measurement: seconds
+    on_value: 
+      then:
+        - script.execute: auto_off
+    
+  - platform: template
+    id: default_red_percent
+    name: default_red_percent
+    min_value: 0
+    max_value: 100
+    step: 1
+    mode: BOX
+    initial_value: 100
+    optimistic: True
+    restore_value: True
+    unit_of_measurement: percent
+
+  - platform: template
+    id: default_green_percent
+    name: default_green_percent
+    min_value: 0
+    max_value: 100
+    step: 1
+    mode: BOX
+    initial_value: 65
+    optimistic: True
+    restore_value: True
+    unit_of_measurement: percent
+
+  - platform: template
+    id: default_blue_percent
+    name: default_blue_percent
+    min_value: 0
+    max_value: 100
+    step: 1
+    mode: BOX
+    initial_value: 34
+    optimistic: True
+    restore_value: True
+    unit_of_measurement: percent
+
+  - platform: template
+    id: default_brightness_percent
+    name: default_brightness_percent
+    min_value: 0
+    max_value: 100
+    step: 1
+    mode: BOX
+    initial_value: 33
+    optimistic: True
+    restore_value: True
+    unit_of_measurement: percent
 
 light:
   - platform: fastled_clockless
     chipset: WS2812B
-    pin: GPIO4
+    pin: GPIO16
     num_leds: 64
     rgb_order: GRB
     name: "led_matrix"
     id: led_matrix
-    default_transition_length: 0s
-    color_correct: [100%, 100%, 100%]
-    internal: false
-    restore_mode: ALWAYS_ON
+    default_transition_length: 0 milliseconds 
+    color_correct: [100%,100%,100%]
+    on_turn_on: 
+      - script.stop: reset_brightness_after_delay
+      - script.execute: auto_off
+      - script.execute: turn_on_light
+    on_turn_off:
+      - script.execute: reset_brightness_after_delay
+
     effects:
-      - flicker:
       - addressable_rainbow:
       - addressable_color_wipe:
       - addressable_scan:
@@ -97,51 +185,51 @@ light:
       - addressable_fireworks:
       - addressable_flicker:
       
-display:
-  - platform: addressable_light
-    id: addressable_display
-    addressable_light_id: led_matrix
-    width: 8
-    height: 8
-    rotation: 180°
-    update_interval: 16ms
-    pages:
-      - id: page_mario
-        lambda: |-
-          it.image(0,0,id(image_mario));
-      - id: page_yoshi
-        lambda: |-
-          it.image(0,0,id(image_yoshi));
-      - id: page_toadstool
-        lambda: |-
-          it.image(0,0,id(image_toadstool));
-      - id: page_goomba
-        lambda: |-
-          it.image(0,0,id(image_goomba));
-      - id: page_mario_flower
-        lambda: |-
-          it.image(0,0,id(image_mario_flower));
-      - id: page_shyguy
-        lambda: |-
-          it.image(0,0,id(image_shyguy));
-      - id: page_link
-        lambda: |-
-          it.image(0,0,id(image_link));
-      - id: page_finn
-        lambda: |-
-          it.image(0,0,id(image_finn));
-      - id: page_bubblebobble
-        lambda: |-
-          it.image(0,0,id(image_bubblebobble));
-      - id: page_bubblebobble2
-        lambda: |-
-          it.image(0,0,id(image_bubblebobble2));
-      - id: page_leonardo
-        lambda: |-
-          it.image(0,0,id(image_leonardo));
-      - id: page_simpsons_snowball
-        lambda: |-
-          it.image(0,0,id(image_simpsons_snowball));
+# display:
+#   - platform: addressable_light
+#     id: addressable_display
+#     addressable_light_id: led_matrix
+#     width: 8
+#     height: 8
+#     rotation: 180°
+#     update_interval: 16ms
+#     pages:
+#       - id: page_mario
+#         lambda: |-
+#           it.image(0,0,id(image_mario));
+#       - id: page_yoshi
+#         lambda: |-
+#           it.image(0,0,id(image_yoshi));
+#       - id: page_toadstool
+#         lambda: |-
+#           it.image(0,0,id(image_toadstool));
+#       - id: page_goomba
+#         lambda: |-
+#           it.image(0,0,id(image_goomba));
+#       - id: page_mario_flower
+#         lambda: |-
+#           it.image(0,0,id(image_mario_flower));
+#       - id: page_shyguy
+#         lambda: |-
+#           it.image(0,0,id(image_shyguy));
+#       - id: page_link
+#         lambda: |-
+#           it.image(0,0,id(image_link));
+#       - id: page_finn
+#         lambda: |-
+#           it.image(0,0,id(image_finn));
+#       - id: page_bubblebobble
+#         lambda: |-
+#           it.image(0,0,id(image_bubblebobble));
+#       - id: page_bubblebobble2
+#         lambda: |-
+#           it.image(0,0,id(image_bubblebobble2));
+#       - id: page_leonardo
+#         lambda: |-
+#           it.image(0,0,id(image_leonardo));
+#       - id: page_simpsons_snowball
+#         lambda: |-
+#           it.image(0,0,id(image_simpsons_snowball));
 #    lambda: |-
 #      Color red = Color(0xFF0000);
 #      Color green = Color(0x00FF00);
@@ -152,21 +240,86 @@ display:
 #      it.rectangle(2, 2, 4, 4, blue);
 #      it.rectangle(3, 3, 2, 2, red);
 
-switch:
-  - platform: template
-    id: control_display
-    name: "Control Display"
-    lambda: |-
-      return id(addressable_display).get_enabled();
-    turn_on_action:
-      - lambda: |-
-          id(addressable_display).set_enabled(true);
-    turn_off_action:
-      - lambda: |-
-          id(addressable_display).set_enabled(false);
+# switch:
+#   - platform: template
+#     id: control_display
+#     name: "Control Display"
+#     lambda: |-
+#       return id(addressable_display).get_enabled();
+#     turn_on_action:
+#       - lambda: |-
+#           id(addressable_display).set_enabled(true);
+#     turn_off_action:
+#       - lambda: |-
+#           id(addressable_display).set_enabled(false);
+
+# interval:
+#   - interval: 3s
+#     then:
+#       - display.page.show_next: addressable_display
+#       - component.update: addressable_display
+
 
 interval:
-  - interval: 3s
+  - interval: 200ms
     then:
-      - display.page.show_next: addressable_display
-      - component.update: addressable_display
+      - if:
+          condition:
+            # the white button has been held down for more than 1 second.
+            - lambda: |-
+                float brightness = 0.0;
+                id(led_matrix).current_values_as_brightness(&brightness);
+                return id(global_white_button_press_start) > 0 &&
+                  (millis() - id(global_white_button_press_start)) >= 1000 &&
+                  brightness < 1.0;
+          then:
+            - light.dim_relative: 
+                id: led_matrix
+                relative_brightness: 5%
+      - if:
+          condition:
+            # the green button has been held down for more than 1 second.
+            - lambda: |-
+                float brightness = 0.0;
+                id(led_matrix).current_values_as_brightness(&brightness);
+                return id(global_green_button_press_start) > 0 && 
+                  (millis() - id(global_green_button_press_start)) >= 1000 &&
+                  brightness > 0.05;
+          then:
+            - light.dim_relative: 
+                id: led_matrix
+                relative_brightness: -5%
+
+script:
+  - id: auto_off
+    mode: restart
+    then: 
+      - delay: !lambda 'return id(auto_off_seconds).state * 1000;'
+      - light.turn_off: led_matrix
+
+  - id: reset_brightness_after_delay
+    then:
+      - delay: 15 seconds
+      - globals.set: 
+          id: global_reset_brightness
+          value: "true"
+          
+  - id: turn_on_light
+    mode: restart
+    then: 
+      - light.turn_on:
+          id: led_matrix
+          red: !lambda return id(default_red_percent).state / 100.0;
+          green: !lambda return id(default_green_percent).state / 100.0;
+          blue: !lambda return id(default_blue_percent).state / 100.0;
+      - if:
+          condition:
+            - lambda: return id(global_reset_brightness) == true;
+          then:
+            - globals.set: 
+                id: global_reset_brightness
+                value: "false"
+            - light.turn_on:
+                id: led_matrix
+                brightness: !lambda return id(default_brightness_percent).state / 100.0;
+                
