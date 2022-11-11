@@ -30,6 +30,13 @@ time:
     servers:
       - !secret ntp_server
 
+bluetooth_proxy:
+  active: True
+
+esp32_ble_tracker:
+  scan_parameters:
+    active: True
+
 # Enable logging
 logger:
   level: DEBUG
@@ -37,7 +44,6 @@ logger:
 light:
   - platform: neopixelbus
     variant: ws2812x
-    method: 
     pin: GPIO4
     num_leds: 256
     type: GRB
