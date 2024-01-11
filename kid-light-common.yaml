@@ -16,6 +16,8 @@ ota:
   password: !secret ota_password
 
 api:
+  encryption:
+    key: !secret api_encryption_key
   password: !secret api_password
 
 mqtt:
