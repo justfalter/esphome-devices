@@ -1,7 +1,17 @@
+substitutions:
+  friendly_name: Sump Pump
+
 esphome:
   name: sump-monitor
   platform: ESP32
   board: wemos_d1_mini32
+  on_boot:
+    priority: -100.0 # -100=everything, including network, should have been initialized
+    then:
+      # Publish the friendly-formatted snooze time based on the value of the snooze timestamp
+      - lambda: |-
+          id(pumpout_counter).publish_state(id(pumpout_counter_var));
+          id(pumpout_interval).publish_state(id(pumpout_interval_minutes_var));
 
 wifi:
   ssid: !secret wifi_ssid
@@ -31,6 +41,24 @@ logger:
   level: INFO
   baud_rate: 0
 
+time:
+  - platform: homeassistant
+    id: homeassistant_time
+
+globals:
+  - id: pumpout_last_timestamp_var
+    type: time_t
+    initial_value: '0'
+    restore_value: true
+  - id: pumpout_interval_minutes_var
+    type: float
+    initial_value: '0.0'
+    restore_value: true
+  - id: pumpout_counter_var
+    type: int
+    restore_value: true
+    initial_value: '0'
+
 # Vibration sensors
 binary_sensor:
   - platform: gpio
@@ -41,3 +69,75 @@ binary_sensor:
     filters:
     - delayed_on: 100ms
     - delayed_off: 1s
+    on_press:
+      then:
+        - script.execute: pumpout_increment
+
+
+sensor:
+  - platform: template
+    name: "${friendly_name} Pumpout Counter"
+    id: pumpout_counter
+    update_interval: never
+    accuracy_decimals: 0
+    state_class: total_increasing
+    lambda: return id(pumpout_counter_var);
+
+  - platform: template
+    name: "${friendly_name} Pumpout Interval"
+    id: pumpout_interval
+    unit_of_measurement: min
+    update_interval: never
+    accuracy_decimals: 1
+    lambda: return id(pumpout_interval_minutes_var);
+
+script:
+  - id: pumpout_increment
+    mode: single
+    then:
+      lambda: |-
+        // Save the timestamp as a local variable
+        time_t execution_timestamp = id(homeassistant_time).now().timestamp;
+        ESP_LOGD("sump-monitor", "execution_timestamp = %li", execution_timestamp);
+        ESP_LOGD("sump-monitor", "pumpout_last_timestamp_var (before) = %li", id(pumpout_last_timestamp_var));
+        ESP_LOGD("sump-monitor", "set pumpout_interval_minutes_var (before) = %li", id(pumpout_interval_minutes_var));
+
+        // Add one to the global integer
+        id(pumpout_counter_var) += 1;
+        // Force the sensor to publish a new state
+        id(pumpout_counter).publish_state(id(pumpout_counter_var));
+
+        if (id(pumpout_last_timestamp_var) > 0) {
+          ESP_LOGD("sump-monitor", "pumpout_last_timestamp_var is greater than 0");
+          // Calculate the minutes since last pumpout
+          id(pumpout_interval_minutes_var) = difftime(execution_timestamp, id(pumpout_last_timestamp_var)) / 60.0;
+          // Force the interval sensor to publish a new state
+          id(pumpout_interval).publish_state(id(pumpout_interval_minutes_var));
+        } else {
+          ESP_LOGD("sump-monitor", "pumpout_last_timestamp_var is NOT greater than 0");
+        }
+        // Store the pumpout timestamp to a global variable
+        id(pumpout_last_timestamp_var) = execution_timestamp;
+        ESP_LOGD("sump-monitor", "pumpout_last_timestamp_var (after) = %li", id(pumpout_last_timestamp_var));
+        ESP_LOGD("sump-monitor", "set pumpout_interval_minutes_var (after) = %li", id(pumpout_interval_minutes_var));
+
+text_sensor:
+  # Expose ESPHome version as sensor.
+  - platform: version
+    name: "${friendly_name} ESPHome Version"
+
+  # Expose WiFi information as sensors.
+  - platform: wifi_info
+    ip_address:
+      name: "${friendly_name} IP"
+    ssid:
+      name: "${friendly_name} SSID"
+    bssid:
+      name: "${friendly_name} BSSID"
+
+button:
+  - platform: template
+    name: "Test Pumpout Increment"
+    on_press:
+      then:
+        - script.execute: pumpout_increment
