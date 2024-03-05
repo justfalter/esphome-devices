@@ -68,7 +68,7 @@ binary_sensor:
     device_class: vibration
     filters:
     - delayed_on: 100ms
-    - delayed_off: 1s
+    - delayed_off: 5s
     on_press:
       then:
         - script.execute: pumpout_increment
@@ -110,7 +110,13 @@ script:
         if (id(pumpout_last_timestamp_var) > 0) {
           ESP_LOGD("sump-monitor", "pumpout_last_timestamp_var is greater than 0");
           // Calculate the minutes since last pumpout
-          id(pumpout_interval_minutes_var) = difftime(execution_timestamp, id(pumpout_last_timestamp_var)) / 60.0;
+          auto interval_minutes = difftime(execution_timestamp, id(pumpout_last_timestamp_var)) / 60.0;
+          if (interval_minutes > 720.0) {
+            // Reset if the interval is more than 12 hours. It'll throw the graphs off.
+            interval_minutes = 0.0;
+          }
+          id(pumpout_interval_minutes_var) = interval_minutes;
+
           // Force the interval sensor to publish a new state
           id(pumpout_interval).publish_state(id(pumpout_interval_minutes_var));
         } else {
