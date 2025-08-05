@@ -12,8 +12,11 @@ wifi:
   power_save_mode: LIGHT
 
 ota:
-  num_attempts: 3
+  platform: esphome
   password: !secret ota_password
+
+safe_mode:
+  num_attempts: 3
 
 api:
   encryption:
@@ -173,6 +176,18 @@ number:
     restore_value: True
     unit_of_measurement: percent
 
+  - platform: template
+    id: max_brightness_percent
+    name: max_brightness_percent
+    min_value: 0
+    max_value: 100
+    step: 1
+    mode: BOX
+    initial_value: 66
+    optimistic: True
+    restore_value: True
+    unit_of_measurement: percent
+
 light:
   - platform: neopixelbus
     variant: ws2812x
@@ -182,7 +197,7 @@ light:
     name: led_strip
     id: led_strip
     default_transition_length: 0 milliseconds 
-    color_correct: [100%,100%,100%]
+    color_correct: [35%,30%,25%]
     on_turn_on: 
       - script.stop: reset_brightness_after_delay
       - script.execute: auto_off
@@ -205,30 +220,36 @@ interval:
           condition:
             # the white button has been held down for more than 1 second, green not at all.
             - lambda: |-
-                float brightness = 0.0;
-                id(led_strip).current_values_as_brightness(&brightness);
-                return id(global_white_button_press_start) > 0 &&
-                  id(global_green_button_press_start) == 0 &&
-                  (millis() - id(global_white_button_press_start)) >= 1000 &&
-                  brightness < 1.0;
+                // float brightness = 0.0;
+                // id(led_strip).current_values_as_brightness(&brightness);
+                return id(global_white_button_press_start) > 0
+                  && id(global_green_button_press_start) == 0
+                  && (millis() - id(global_white_button_press_start)) >= 1000
+                  //&& brightness < (id(max_brightness_percent).state / 100.0)
+                  ;
           then:
             - light.dim_relative: 
                 id: led_strip
                 relative_brightness: 5%
+                brightness_limits:
+                  min_brightness: 30%
       - if:
           condition:
             # the green button has been held down for more than 1 second, white not at all.
             - lambda: |-
-                float brightness = 0.0;
-                id(led_strip).current_values_as_brightness(&brightness);
+                // float brightness = 0.0;
+                // id(led_strip).current_values_as_brightness(&brightness);
                 return id(global_green_button_press_start) > 0 && 
                   id(global_white_button_press_start) == 0 &&
-                  (millis() - id(global_green_button_press_start)) >= 1000 &&
-                  brightness > 0.05;
+                  (millis() - id(global_green_button_press_start)) >= 1000
+                  //&& brightness > 0.05
+                  ;
           then:
             - light.dim_relative: 
                 id: led_strip
                 relative_brightness: -5%
+                brightness_limits:
+                  min_brightness: 30%
       - if:
           condition:
             # White and green button are held down for more than 1 second.
