@@ -1,6 +1,10 @@
 esphome:
   name: ${device_name}
-  
+  on_boot:
+    priority: -100
+    then:
+      - script.execute: apply_color_correction
+
 esp32:
   board: ${board}
 
@@ -177,8 +181,8 @@ number:
     unit_of_measurement: percent
 
   - platform: template
-    id: red_percent
-    name: red_percent
+    id: color_correct_red_percent
+    name: color_correct_red_percent
     min_value: 0
     max_value: 100
     step: 1
@@ -187,10 +191,13 @@ number:
     optimistic: True
     restore_value: True
     unit_of_measurement: percent
+    on_value:
+      then:
+        - script.execute: apply_color_correction
 
   - platform: template
-    id: green_percent
-    name: green_percent
+    id: color_correct_green_percent
+    name: color_correct_green_percent
     min_value: 0
     max_value: 100
     step: 1
@@ -199,10 +206,13 @@ number:
     optimistic: True
     restore_value: True
     unit_of_measurement: percent
+    on_value:
+      then:
+        - script.execute: apply_color_correction
 
   - platform: template
-    id: blue_percent
-    name: blue_percent
+    id: color_correct_blue_percent
+    name: color_correct_blue_percent
     min_value: 0
     max_value: 100
     step: 1
@@ -211,6 +221,9 @@ number:
     optimistic: True
     restore_value: True
     unit_of_measurement: percent
+    on_value:
+      then:
+        - script.execute: apply_color_correction
 
 light:
   - platform: neopixelbus
@@ -285,6 +298,16 @@ interval:
             - script.execute: next_hue
 
 script:
+  - id: apply_color_correction
+    then:
+      - lambda: |-
+          auto *output = (esphome::light::AddressableLight *) id(led_strip).get_output();
+          output->set_correction(
+              id(color_correct_red_percent).state / 100.0f,
+              id(color_correct_green_percent).state / 100.0f,
+              id(color_correct_blue_percent).state / 100.0f
+          );
+
   - id: auto_off
     mode: restart
     then: 
