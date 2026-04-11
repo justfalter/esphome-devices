@@ -147,7 +147,7 @@ number:
     max_value: 100
     step: 1
     mode: BOX
-    initial_value: 65
+    initial_value: 100
     optimistic: True
     restore_value: True
     unit_of_measurement: percent
@@ -159,7 +159,7 @@ number:
     max_value: 100
     step: 1
     mode: BOX
-    initial_value: 34
+    initial_value: 100
     optimistic: True
     restore_value: True
     unit_of_measurement: percent
@@ -171,43 +171,19 @@ number:
     max_value: 100
     step: 1
     mode: BOX
-    initial_value: 33
+    initial_value: 100
     optimistic: True
     restore_value: True
     unit_of_measurement: percent
 
   - platform: template
-    id: red_percent
-    name: red_percent
+    id: max_brightness_percent
+    name: max_brightness_percent
     min_value: 0
     max_value: 100
     step: 1
     mode: BOX
-    initial_value: 35
-    optimistic: True
-    restore_value: True
-    unit_of_measurement: percent
-
-  - platform: template
-    id: green_percent
-    name: green_percent
-    min_value: 0
-    max_value: 100
-    step: 1
-    mode: BOX
-    initial_value: 30
-    optimistic: True
-    restore_value: True
-    unit_of_measurement: percent
-
-  - platform: template
-    id: blue_percent
-    name: blue_percent
-    min_value: 0
-    max_value: 100
-    step: 1
-    mode: BOX
-    initial_value: 25
+    initial_value: 100
     optimistic: True
     restore_value: True
     unit_of_measurement: percent
@@ -221,7 +197,7 @@ light:
     name: led_strip
     id: led_strip
     default_transition_length: 0 milliseconds 
-    # color_correct: [35%,30%,25%]
+    #color_correct: [35%,30%,25%]
     on_turn_on: 
       - script.stop: reset_brightness_after_delay
       - script.execute: auto_off
@@ -249,6 +225,7 @@ interval:
                 return id(global_white_button_press_start) > 0
                   && id(global_green_button_press_start) == 0
                   && (millis() - id(global_white_button_press_start)) >= 1000
+                  //&& brightness < (id(max_brightness_percent).state / 100.0)
                   ;
           then:
             - light.dim_relative: 

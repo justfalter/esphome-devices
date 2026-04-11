@@ -6,3 +6,4 @@ secrets*
 !secrets.yaml.example
 .esphome/
 .DS_Store
+.venv

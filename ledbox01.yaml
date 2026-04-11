@@ -1,5 +1,5 @@
 !include
-  file: ./kid-light-common.yaml
+  file: ./ledbox-common.yaml
   vars:
     device_name: ledbox01
     board: esp32doit-devkit-v1
