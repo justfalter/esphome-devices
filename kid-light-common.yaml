@@ -8,6 +8,7 @@ esphome:
 esp32:
   board: ${board}
 
+
 wifi:
   ssid: !secret wifi_ssid
   password: !secret wifi_password
@@ -26,6 +27,9 @@ api:
   encryption:
     key: !secret api_encryption_key
   # password: !secret api_password
+
+web_server:
+  port: 80
 
 mqtt:
   broker: !secret mqtt_broker
@@ -57,7 +61,7 @@ globals:
   - id: global_reset
     type: "bool"
     restore_value: no
-    initial_value: "false"
+    initial_value: "true"
   - id: global_active_effect
     type: int
     restore_value: no
@@ -120,7 +124,7 @@ binary_sensor:
 number:
   - platform: template
     id: auto_off_seconds
-    name: auto_off_seconds
+    name: Auto Off
     min_value: 0
     max_value: 3600
     step: 1
@@ -133,44 +137,8 @@ number:
         - script.execute: auto_off
     
   - platform: template
-    id: default_red_percent
-    name: default_red_percent
-    min_value: 0
-    max_value: 100
-    step: 1
-    mode: BOX
-    initial_value: 100
-    optimistic: True
-    restore_value: True
-    unit_of_measurement: percent
-
-  - platform: template
-    id: default_green_percent
-    name: default_green_percent
-    min_value: 0
-    max_value: 100
-    step: 1
-    mode: BOX
-    initial_value: 65
-    optimistic: True
-    restore_value: True
-    unit_of_measurement: percent
-
-  - platform: template
-    id: default_blue_percent
-    name: default_blue_percent
-    min_value: 0
-    max_value: 100
-    step: 1
-    mode: BOX
-    initial_value: 34
-    optimistic: True
-    restore_value: True
-    unit_of_measurement: percent
-
-  - platform: template
     id: default_brightness_percent
-    name: default_brightness_percent
+    name: Default Brightness
     min_value: 0
     max_value: 100
     step: 1
@@ -182,7 +150,7 @@ number:
 
   - platform: template
     id: color_correct_red_percent
-    name: color_correct_red_percent
+    name: CC Red
     min_value: 0
     max_value: 100
     step: 1
@@ -197,7 +165,7 @@ number:
 
   - platform: template
     id: color_correct_green_percent
-    name: color_correct_green_percent
+    name: CC Green
     min_value: 0
     max_value: 100
     step: 1
@@ -212,7 +180,7 @@ number:
 
   - platform: template
     id: color_correct_blue_percent
-    name: color_correct_blue_percent
+    name: CC Blue
     min_value: 0
     max_value: 100
     step: 1
@@ -225,12 +193,30 @@ number:
       then:
         - script.execute: apply_color_correction
 
+  - platform: template
+    id: max_brightness_percent
+    name: Max Brightness
+    min_value: 0
+    max_value: 100
+    step: 1
+    mode: BOX
+    initial_value: 100
+    optimistic: True
+    restore_value: True
+    unit_of_measurement: percent
+    on_value:
+      then:
+        - script.execute: apply_color_correction
+
+button:
+  - platform: restart
+    name: restart
 light:
-  - platform: neopixelbus
-    variant: ws2812x
+  - platform: esp32_rmt_led_strip
+    chipset: ws2812
     pin: ${led_pin}
     num_leds: ${led_count}
-    type: GRB
+    rgb_order: GRB
     name: led_strip
     id: led_strip
     default_transition_length: 0 milliseconds 
@@ -268,7 +254,7 @@ interval:
                 id: led_strip
                 relative_brightness: 5%
                 brightness_limits:
-                  min_brightness: 30%
+                  min_brightness: 25%
       - if:
           condition:
             # the green button has been held down for more than 1 second, white not at all.
@@ -302,10 +288,11 @@ script:
     then:
       - lambda: |-
           auto *output = (esphome::light::AddressableLight *) id(led_strip).get_output();
+          float maxb = id(max_brightness_percent).state / 100.0f;
           output->set_correction(
-              id(color_correct_red_percent).state / 100.0f,
-              id(color_correct_green_percent).state / 100.0f,
-              id(color_correct_blue_percent).state / 100.0f
+            (id(color_correct_red_percent).state / 100.0f) * maxb,
+            (id(color_correct_green_percent).state / 100.0f) * maxb,
+            (id(color_correct_blue_percent).state / 100.0f) * maxb
           );
 
   - id: auto_off
@@ -324,11 +311,6 @@ script:
   - id: turn_on_light
     mode: restart
     then: 
-      - light.turn_on:
-          id: led_strip
-          red: !lambda return id(default_red_percent).state / 100.0;
-          green: !lambda return id(default_green_percent).state / 100.0;
-          blue: !lambda return id(default_blue_percent).state / 100.0;
       - globals.set: 
           id: global_active_effect
           value: "0"
