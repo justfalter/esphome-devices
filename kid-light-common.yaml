@@ -21,6 +21,11 @@ ota:
   platform: esphome
   password: !secret ota_password
 
+esp32_ble_tracker:
+
+bluetooth_proxy:
+  active: true
+
 safe_mode:
   num_attempts: 3
 
