@@ -3,8 +3,6 @@ substitutions:
 
 esphome:
   name: sump-monitor
-  platform: ESP32
-  board: wemos_d1_mini32
   on_boot:
     priority: -100.0 # -100=everything, including network, should have been initialized
     then:
@@ -12,6 +10,11 @@ esphome:
       - lambda: |-
           id(pumpout_counter).publish_state(id(pumpout_counter_var));
           id(pumpout_interval).publish_state(id(pumpout_interval_minutes_var));
+
+esp32:
+  board: wemos_d1_mini32
+  framework:
+    type: esp-idf
 
 wifi:
   ssid: !secret wifi_ssid
@@ -21,13 +24,22 @@ wifi:
   power_save_mode: LIGHT
 
 ota:
-  num_attempts: 3
+  platform: esphome
   password: !secret ota_password
+
+safe_mode:
+  num_attempts: 3
 
 api:
   encryption:
     key: !secret api_encryption_key
-  password: !secret api_password
+
+esp32_ble_tracker:
+  scan_parameters:
+    active: true
+
+bluetooth_proxy:
+  active: true
 
 mqtt:
   broker: !secret mqtt_broker

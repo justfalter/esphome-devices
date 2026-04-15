@@ -4,7 +4,6 @@ esphome:
     priority: -100
     then:
       - script.execute: apply_color_correction
-
 esp32:
   board: ${board}
   framework:
@@ -22,6 +21,8 @@ ota:
   password: !secret ota_password
 
 esp32_ble_tracker:
+  scan_parameters:
+    active: true
 
 bluetooth_proxy:
   active: true
@@ -46,10 +47,8 @@ mqtt:
   discovery_unique_id_generator: mac
 
 time:
-  - platform: sntp
-    id: sntp_time
-    servers:
-      - !secret ntp_server
+  - platform: homeassistant
+    id: homeassistant_time
 
 globals:
   - id: global_white_button_press_start
@@ -82,7 +81,6 @@ logger:
   level: INFO
   baud_rate: 0
 #   level: DEBUG
-  
 binary_sensor:
   - platform: gpio
     name: white_button

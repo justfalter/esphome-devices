@@ -1,5 +1,16 @@
+# !include
+#   file: ./ledbox-common.yaml
+#   vars:
+#     device_name: ledbox01
+#     board: esp32doit-devkit-v1
+#     white_button_pin: 32
+#     green_button_pin: 33
+#     led_pin: 16
+#     led_count: 64
+
+
 !include
-  file: ./ledbox-common.yaml
+  file: ./kid-light-common.yaml
   vars:
     device_name: ledbox01
     board: esp32doit-devkit-v1
