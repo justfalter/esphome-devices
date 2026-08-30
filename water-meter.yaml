@@ -1,0 +1,269 @@
+substitutions:
+  device_name: "water-meter"
+  # --- Calibration ---------------------------------------------------------
+  # Hysteresis trip points on the X axis, in uT. Observed swing is roughly
+  # +11 down to -40 (midpoint ~-14.5), so these sit well inside both peaks:
+  # ~10 uT of overshoot past each trip point, with a 30 uT dead band between
+  # them so noise can't double-count.
+  threshold_high: "0"
+  threshold_low: "-30"
+  # Volume per revolution of the nutating disc: 1 cubic foot per 1000
+  # revolutions, i.e. the meter's register reads in ft3.
+  gal_per_rotation: "0.0074805195"
+  # -------------------------------------------------------------------------
+  device_label: "Digital Magnetometer Water"
+  device_nickname: "Magnetometer"
+
+esphome:
+  name: ${device_name}
+  friendly_name: ${device_label}
+
+esp32:
+  board: wemos_d1_mini32
+  framework:
+    type: esp-idf
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  domain: !secret host_domain
+  fast_connect: true
+  # Power save must stay off: we sample the magnetometer at 100 Hz.
+  power_save_mode: none
+
+ota:
+  platform: esphome
+  password: !secret ota_password
+
+safe_mode:
+  num_attempts: 3
+
+api:
+  encryption:
+    key: !secret api_encryption_key
+
+logger:
+  level: INFO
+
+# The totalizer lives in a global; don't wear out flash writing it constantly.
+preferences:
+  flash_write_interval: 60min
+
+web_server:
+  port: 80
+
+globals:
+  - id: water_counter_total # increasing count
+    type: long
+    restore_value: yes
+    initial_value: '0'
+  - id: water_counter # current count
+    type: long
+    restore_value: no
+    initial_value: '0'
+  - id: water_high # high/low threshold for count
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+
+  # Per-second accumulators for the X-axis calibration log.
+  - id: axis_min
+    type: float
+    restore_value: no
+  - id: axis_max
+    type: float
+    restore_value: no
+  - id: axis_sum
+    type: double
+    restore_value: no
+    initial_value: '0'
+  - id: axis_samples
+    type: int
+    restore_value: no
+    initial_value: '0'
+
+number:
+  - platform: template
+    name: "${device_nickname} Set Reading"
+    optimistic: true
+    min_value: 0
+    max_value: 99999
+    step: 1
+    id: act_reading
+    entity_category: config
+    mode: box
+    icon: 'mdi:counter'
+    set_action:
+      then:
+        - lambda: |-
+            id(water_counter_total) = (long) floor(x);
+
+i2c:
+  sda: GPIO25
+  scl: GPIO27
+  frequency: 100kHz
+  id: bus_a
+
+# X-axis range is roughly -69 to -121 when the disc cycles slowly. The trigger
+# points come from the Threshold High / Threshold Low numbers above.
+interval:
+  - interval: 10ms
+    then:
+      - lambda: |-
+          if (id(qmc5883l_x).state > ${threshold_high} && !id(water_high)) {
+             id(water_counter_total) += 1;
+             id(water_counter) += 1;
+             id(water_high) = true;
+             id(led).turn_on();
+           } else if (id(qmc5883l_x).state < ${threshold_low} && id(water_high)) {
+             id(water_high) = false;
+             id(led).turn_off();
+           }
+
+           // Fold this sample into the per-second min/max/avg accumulators so
+           // the 1s calibration log reflects all ~100 readings, not just one.
+           if (id(axis_logging).state) {
+             const float v = id(qmc5883l_x).state;
+             if (!std::isnan(v)) {
+               if (id(axis_samples) == 0 || v < id(axis_min)) id(axis_min) = v;
+               if (id(axis_samples) == 0 || v > id(axis_max)) id(axis_max) = v;
+               id(axis_sum) += v;
+               id(axis_samples) += 1;
+             }
+           }
+
+  # Calibration aid: log the X axis once a second while the switch is on.
+  - interval: 1s
+    then:
+      - if:
+          condition:
+            switch.is_on: axis_logging
+          then:
+            - lambda: |-
+                int n = id(axis_samples);
+                if (n == 0) {
+                  ESP_LOGI("water-meter", "no samples this second");
+                  return;
+                }
+                ESP_LOGI("water-meter",
+                         "x: cur=%7.1f min=%7.1f max=%7.1f avg=%7.1f span=%6.1f  "
+                         "n=%d high=%.1f low=%.1f state=%s count=%ld",
+                         id(qmc5883l_x).state, id(axis_min), id(axis_max),
+                         (float) (id(axis_sum) / n), id(axis_max) - id(axis_min),
+                         n, (float) ${threshold_high}, (float) ${threshold_low},
+                         id(water_high) ? "HIGH" : "LOW", id(water_counter_total));
+
+                // Reset the accumulators for the next window.
+                id(axis_sum) = 0;
+                id(axis_samples) = 0;
+
+sensor:
+  - platform: qmc5883l
+    address: 0x0D
+    i2c_id: bus_a
+    field_strength_x:
+      name: "QMC5883L X-axis"
+      id: qmc5883l_x
+      internal: true # counting axis; sampled at 100 Hz, far too fast to publish
+    oversampling: 128x # 512x=10Hz, 256x=50Hz, 128x=100Hz, 64x=200Hz
+    range: 200uT
+    update_interval: 10ms # must match the interval: above
+
+  - platform: template
+    name: "Nutating Disc Count"
+    lambda: |-
+      return (float) id(water_counter_total);
+    update_interval: 1s
+    state_class: 'total_increasing'
+    accuracy_decimals: 0
+
+  - platform: template
+    name: "Nutating Disc RPM"
+    lambda: |-
+      int temp2 = id(water_counter);
+      id(water_counter) -= temp2;
+      return temp2 * (6);
+    update_interval: 10s
+    unit_of_measurement: "rpm"
+    accuracy_decimals: 0
+
+  - platform: template
+    name: "Water Flow"
+    lambda: |-
+      int temp3 = id(water_counter);
+      id(water_counter) -= temp3;
+      return temp3 * 6 * ${gal_per_rotation};
+    update_interval: 10s
+    unit_of_measurement: "gal/min"
+    accuracy_decimals: 2
+
+  - platform: template
+    name: "Water Total (gal)"
+    lambda: |-
+      return ((float) id(water_counter_total) * ${gal_per_rotation});
+    update_interval: 10s
+    unit_of_measurement: 'gal'
+    accuracy_decimals: 2
+    state_class: 'total_increasing'
+    device_class: 'water'
+
+  # The unit the water company bills in: 1 CCF = 100 ft3 = 748.051948 gallons.
+  - platform: template
+    name: "Water Total (CCF)"
+    lambda: |-
+      return ((float) id(water_counter_total) * ${gal_per_rotation} / 748.051948);
+    update_interval: 60s
+    unit_of_measurement: 'CCF'
+    accuracy_decimals: 4
+    state_class: 'total_increasing'
+    device_class: 'water'
+
+# 5/8" Neptune T-10 calibration, per revolution of the nutating disc:
+#   0.008648 gal  =  0.032736241 L  =  0.000032736 m3
+#   115.6 revolutions per gallon
+# Source: https://www.riotronics.com/wp-content/uploads/2019/11/NT10-4P-WaterRead-pdf3.01.pdf
+# (which quotes 0.004324 gal / 231.24 pulses per gallon for a reed switch, i.e.
+# two pulses per revolution -- see the Gallons Per Rotation number above).
+
+  - platform: wifi_signal
+    name: "${device_nickname} WiFi Signal"
+    update_interval: 60s
+    entity_category: diagnostic
+    filters:
+      - sliding_window_moving_average:
+          window_size: 6
+          send_every: 6
+
+  - platform: uptime
+    name: "${device_nickname} Uptime"
+    id: uptime_sensor
+    update_interval: 60s
+    entity_category: diagnostic
+
+text_sensor:
+  - platform: version
+    name: "${device_nickname} ESPHome Version"
+
+  - platform: wifi_info
+    ip_address:
+      name: "${device_nickname} IP"
+    ssid:
+      name: "${device_nickname} SSID"
+
+# LED flashes as the magnet rotates on the water meter.
+switch:
+  - platform: template
+    name: "${device_nickname} Axis Logging"
+    id: axis_logging
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_OFF
+    entity_category: config
+    icon: 'mdi:math-log'
+
+  - platform: gpio
+    id: led
+    pin:
+      number: GPIO2
+      inverted: true
+      mode: OUTPUT
+    restore_mode: ALWAYS_OFF
