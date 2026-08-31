@@ -7,12 +7,19 @@ substitutions:
   # them so noise can't double-count.
   threshold_high: "0"
   threshold_low: "-30"
-  # Volume per revolution of the nutating disc: 1 cubic foot per 1000
-  # revolutions, i.e. the meter's register reads in ft3.
-  gal_per_rotation: "0.0074805195"
+  # Volume per revolution of the nutating disc, in cubic feet -- the unit the
+  # meter is built and billed in. The RIO Tronics NT10-4P sheet lists 231.24
+  # pulses/gal for a 5/8" T-10 (= 1729.8 pulses/ft3, i.e. a designed 1730); at
+  # two reed closures per revolution that is ~865 rev/ft3.
+  #   1/865 = 0.0011560694 ft3/rev (= 0.008648 gal/rev)
+  # Verified 2026-08-30: 706 rotations over 0.82 ft3 (65.0026 -> 65.0108 CCF)
+  # = 861 rev/ft3, +0.47% from spec and well inside the +/-2.4% uncertainty of
+  # reading the register to 0.01 ft3. https://www.riotronics.com/wp-content/uploads/2019/11/NT10-4P-WaterRead-pdf3.01.pdf
+  ft3_per_rotation: "0.0011560694"
+  # US gallons per cubic foot, for the derived gallon sensors.
+  gal_per_ft3: "7.48051948"
   # -------------------------------------------------------------------------
-  device_label: "Digital Magnetometer Water"
-  device_nickname: "Magnetometer"
+  device_label: "Water Meter"
 
 esphome:
   name: ${device_name}
@@ -44,10 +51,6 @@ api:
 
 logger:
   level: INFO
-
-# The totalizer lives in a global; don't wear out flash writing it constantly.
-preferences:
-  flash_write_interval: 60min
 
 web_server:
   port: 80
@@ -82,30 +85,14 @@ globals:
     restore_value: no
     initial_value: '0'
 
-number:
-  - platform: template
-    name: "${device_nickname} Set Reading"
-    optimistic: true
-    min_value: 0
-    max_value: 99999
-    step: 1
-    id: act_reading
-    entity_category: config
-    mode: box
-    icon: 'mdi:counter'
-    set_action:
-      then:
-        - lambda: |-
-            id(water_counter_total) = (long) floor(x);
-
 i2c:
   sda: GPIO25
   scl: GPIO27
   frequency: 100kHz
   id: bus_a
 
-# X-axis range is roughly -69 to -121 when the disc cycles slowly. The trigger
-# points come from the Threshold High / Threshold Low numbers above.
+# Observed X-axis swing is roughly +11 to -40 uT; the trip points come from
+# the threshold_high / threshold_low substitutions at the top of the file.
 interval:
   - interval: 10ms
     then:
@@ -192,7 +179,7 @@ sensor:
     lambda: |-
       int temp3 = id(water_counter);
       id(water_counter) -= temp3;
-      return temp3 * 6 * ${gal_per_rotation};
+      return temp3 * 6 * ${ft3_per_rotation} * ${gal_per_ft3};
     update_interval: 10s
     unit_of_measurement: "gal/min"
     accuracy_decimals: 2
@@ -200,33 +187,26 @@ sensor:
   - platform: template
     name: "Water Total (gal)"
     lambda: |-
-      return ((float) id(water_counter_total) * ${gal_per_rotation});
+      return ((float) id(water_counter_total) * ${ft3_per_rotation} * ${gal_per_ft3});
     update_interval: 10s
     unit_of_measurement: 'gal'
     accuracy_decimals: 2
     state_class: 'total_increasing'
     device_class: 'water'
 
-  # The unit the water company bills in: 1 CCF = 100 ft3 = 748.051948 gallons.
+  # The unit the water company bills in: 1 CCF = 100 ft3.
   - platform: template
     name: "Water Total (CCF)"
     lambda: |-
-      return ((float) id(water_counter_total) * ${gal_per_rotation} / 748.051948);
-    update_interval: 60s
+      return ((float) id(water_counter_total) * ${ft3_per_rotation} / 100.0);
+    update_interval: 10s
     unit_of_measurement: 'CCF'
     accuracy_decimals: 4
     state_class: 'total_increasing'
     device_class: 'water'
 
-# 5/8" Neptune T-10 calibration, per revolution of the nutating disc:
-#   0.008648 gal  =  0.032736241 L  =  0.000032736 m3
-#   115.6 revolutions per gallon
-# Source: https://www.riotronics.com/wp-content/uploads/2019/11/NT10-4P-WaterRead-pdf3.01.pdf
-# (which quotes 0.004324 gal / 231.24 pulses per gallon for a reed switch, i.e.
-# two pulses per revolution -- see the Gallons Per Rotation number above).
-
   - platform: wifi_signal
-    name: "${device_nickname} WiFi Signal"
+    name: "WiFi Signal"
     update_interval: 60s
     entity_category: diagnostic
     filters:
@@ -235,25 +215,25 @@ sensor:
           send_every: 6
 
   - platform: uptime
-    name: "${device_nickname} Uptime"
+    name: "Uptime"
     id: uptime_sensor
     update_interval: 60s
     entity_category: diagnostic
 
 text_sensor:
   - platform: version
-    name: "${device_nickname} ESPHome Version"
+    name: "ESPHome Version"
 
   - platform: wifi_info
     ip_address:
-      name: "${device_nickname} IP"
+      name: "IP"
     ssid:
-      name: "${device_nickname} SSID"
+      name: "SSID"
 
 # LED flashes as the magnet rotates on the water meter.
 switch:
   - platform: template
-    name: "${device_nickname} Axis Logging"
+    name: "Axis Logging"
     id: axis_logging
     optimistic: true
     restore_mode: RESTORE_DEFAULT_OFF
