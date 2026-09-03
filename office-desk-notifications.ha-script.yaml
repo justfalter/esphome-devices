@@ -1,0 +1,154 @@
+# Home Assistant side of the office-desk-notifications LED controller.
+# =================================================================
+# Companion to: office-desk-notifications.yaml  (the ESPHome firmware)
+#
+# The firmware exposes one API action, esphome.office_desk_notifications_
+# start_effect, that sets a segment's colour/brightness/effect and every
+# effect parameter in a single call (see the `api:` block in that file).
+# That action takes bare typed variables -- Home Assistant renders it as a
+# row of unlabeled fields with no ranges, no dropdowns, no units.
+#
+# This file wraps it in script.office_desk_led_effect, whose `fields:`
+# carry the names, descriptions, selectors, ranges and units. The script
+# body just forwards each field to the matching action variable, sending
+# -1 for anything left blank ("leave unchanged"). So:
+#
+#   script field   ->  start_effect variable   (see firmware `api:` block)
+#   ------------------------------------------------------------------
+#   segment        ->  segment
+#   effect         ->  effect
+#   color (rgb)    ->  red / green / blue
+#   brightness     ->  brightness
+#   duration       ->  duration
+#   rainbow_speed  ->  rainbow_speed
+#   rainbow_width  ->  rainbow_width
+#   wipe_interval  ->  wipe_interval
+#   scan_interval  ->  scan_interval
+#   scan_width     ->  scan_width
+#   blink_interval ->  blink_interval
+#
+# Keep the two in sync: if a variable is added/renamed/re-ranged in the
+# firmware's `api:` block, mirror the change here and re-import.
+#
+# Already installed in HA (script.office_desk_led_effect,
+# script.office_desk_led_segment_off). This file is the source of record;
+# re-import it if you rebuild HA:
+#
+#   homeassistant:
+#     packages:
+#       office_desk_led: !include office-desk-notifications.ha-script.yaml
+
+script:
+  office_desk_led_effect:
+    alias: Office desk LED - start effect
+    description: >-
+      Configure and start one LED segment (colour, brightness, effect and
+      all effect parameters) in a single call, optionally for a fixed time.
+      Blank fields are left unchanged.
+    mode: parallel
+    max: 10
+    fields:
+      segment:
+        name: Segment
+        description: Which segment to control (0 = nearest the controller).
+        required: true
+        example: 3
+        selector:
+          number: { min: 0, max: 9, step: 1, mode: box }
+      effect:
+        name: Effect
+        description: Effect to run. Leave blank to keep the current effect.
+        default: Rainbow
+        selector:
+          select:
+            options:
+              - "None"
+              - "Rainbow"
+              - "Color Wipe"
+              - "Scan"
+              - "Blink"
+              - "Twinkle"
+              - "Random Twinkle"
+              - "Fireworks"
+              - "Addressable Flicker"
+      color:
+        name: Colour
+        description: Base colour. Leave blank to keep the segment's current colour.
+        selector:
+          color_rgb:
+      brightness:
+        name: Brightness
+        description: 0-255. Leave blank to keep current brightness.
+        selector:
+          number: { min: 0, max: 255, step: 1, mode: box }
+      duration:
+        name: Duration
+        description: Seconds to run before the segment turns itself off. Blank = run until turned off.
+        selector:
+          number: { min: 0, max: 3600, step: 1, unit_of_measurement: s, mode: box }
+      rainbow_speed:
+        name: Rainbow - speed
+        description: Colour cycles per 100 s (10 ~ slow, 50 ~ brisk, 100 ~ fast). Default 10.
+        selector:
+          number: { min: 1, max: 300, step: 1, mode: box }
+      rainbow_width:
+        name: Rainbow - width
+        description: Number of LEDs spanning one full rainbow. Default 50 (small = tight bands).
+        selector:
+          number: { min: 1, max: 200, step: 1, mode: box }
+      wipe_interval:
+        name: Color Wipe - step time
+        description: Milliseconds between adding/removing one LED. Default 100.
+        selector:
+          number: { min: 5, max: 2000, step: 5, unit_of_measurement: ms, mode: box }
+      scan_interval:
+        name: Scan - step time
+        description: Milliseconds between dot moves. Default 100.
+        selector:
+          number: { min: 5, max: 2000, step: 5, unit_of_measurement: ms, mode: box }
+      scan_width:
+        name: Scan - dot width
+        description: Width of the moving dot in LEDs. Default 1.
+        selector:
+          number: { min: 1, max: 10, step: 1, mode: box }
+      blink_interval:
+        name: Blink - half period
+        description: Milliseconds on, then milliseconds off. Default 500.
+        selector:
+          number: { min: 20, max: 10000, step: 10, unit_of_measurement: ms, mode: box }
+    sequence:
+      - action: esphome.office_desk_notifications_start_effect
+        data:
+          segment: "{{ segment | int }}"
+          effect: "{{ effect | default('', true) }}"
+          red: "{{ (color[0] | int) if color is defined and color else -1 }}"
+          green: "{{ (color[1] | int) if color is defined and color else -1 }}"
+          blue: "{{ (color[2] | int) if color is defined and color else -1 }}"
+          brightness: "{{ brightness | default(-1, true) | int }}"
+          rainbow_speed: "{{ rainbow_speed | default(-1, true) | float }}"
+          rainbow_width: "{{ rainbow_width | default(-1, true) | float }}"
+          wipe_interval: "{{ wipe_interval | default(-1, true) | float }}"
+          scan_interval: "{{ scan_interval | default(-1, true) | float }}"
+          scan_width: "{{ scan_width | default(-1, true) | float }}"
+          blink_interval: "{{ blink_interval | default(-1, true) | float }}"
+          duration: "{{ duration | default(-1, true) | float }}"
+
+  office_desk_led_segment_off:
+    alias: Office desk LED - turn segment off
+    description: Turn a single LED segment off.
+    mode: parallel
+    max: 10
+    fields:
+      segment:
+        name: Segment
+        description: Which LED segment light to turn off.
+        required: true
+        selector:
+          entity:
+            filter:
+              - integration: esphome
+                domain: light
+    sequence:
+      - action: light.turn_off
+        target:
+          entity_id: "{{ segment }}"

@@ -1,0 +1,444 @@
+# "Skikibily" ESP32 WLED controller (board marking: DOM-WLE-18P)
+#
+# 59x WS2812 strip on IO2, partitioned into 10 segments (seg0..seg9).
+# Segments are 6 LEDs each except seg9, which is the remaining 5.
+#
+# GPIO12 gates 5V power to the strip (onboard MOSFET) - managed by the
+# `power_supply` component; the rail is on only while a segment is lit.
+# Spare LED-capable outputs on this board (not wired): IO16, IO17, IO18.
+#
+# Effects per segment:
+#   Rainbow, Color Wipe, Scan, Blink  -> custom lambdas whose parameters
+#     are per-segment and set at runtime.
+#   Twinkle, Random Twinkle, Fireworks, Flicker -> stock effects.
+#
+# Runtime control: the esphome.office_desk_notifications_start_effect API
+# action configures a segment (color, brightness, effect, and all effect
+# parameters) in one call. See the `api:` block below for the fields.
+#
+# Companion file: office-desk-notifications.ha-script.yaml
+#   A Home Assistant script (script.office_desk_led_effect) that fronts the
+#   start_effect action with a documented form (dropdowns, sliders, units).
+#   Its field names map 1:1 to this action's `variables:`. If you add,
+#   rename, or re-range a variable below, update that file to match and
+#   re-import it into HA.
+
+substitutions:
+  device_name: office-desk-notifications
+  board: esp32dev
+  led_pin: GPIO2
+  led_count: "59"
+
+esphome:
+  name: ${device_name}
+
+esp32:
+  board: ${board}
+  framework:
+    type: esp-idf
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  domain: !secret host_domain
+  fast_connect: true
+  power_save_mode: LIGHT
+
+ota:
+  platform: esphome
+  password: !secret ota_password
+
+safe_mode:
+  num_attempts: 3
+
+api:
+  encryption:
+    key: !secret api_encryption_key
+  actions:
+    # One call configures and starts a segment: color, brightness, effect,
+    # and every effect parameter in a single package. Any numeric field set
+    # to a negative value is left unchanged; effect: "" leaves the current
+    # effect running (or none). Effect params persist across reboots.
+    #
+    # The HA script in office-desk-notifications.ha-script.yaml wraps this
+    # with a friendly form; its fields mirror the variables listed here.
+    #
+    #   segment:        0..9
+    #   effect:         "Rainbow" | "Color Wipe" | "Scan" | "Blink" |
+    #                   "Twinkle" | "Random Twinkle" | "Fireworks" |
+    #                   "Addressable Flicker" | "None" | ""
+    #   red/green/blue: 0..255   (all three must be >= 0 to apply a color)
+    #   brightness:     0..255
+    #   rainbow_speed:  hue scroll rate      (default 10)
+    #   rainbow_width:  hue spread in LEDs   (default 50)
+    #   wipe_interval:  Color Wipe step, ms  (default 100)
+    #   scan_interval:  Scan step, ms        (default 100)
+    #   scan_width:     Scan dot width, LEDs (default 1)
+    #   blink_interval: Blink half-period, ms (default 500)
+    #   duration:       seconds to run, then the segment turns off
+    #                   (< 0 = run until turned off; re-calling re-arms it)
+    - action: start_effect
+      variables:
+        segment: int
+        effect: string
+        red: int
+        green: int
+        blue: int
+        brightness: int
+        rainbow_speed: float
+        rainbow_width: float
+        wipe_interval: float
+        scan_interval: float
+        scan_width: float
+        blink_interval: float
+        duration: float
+      then:
+        - lambda: |-
+            if (segment < 0 || segment > 9) {
+              ESP_LOGW("fx", "start_effect: bad segment %d", segment);
+              return;
+            }
+            if (rainbow_speed  >= 0) id(fx_rainbow_speed)[segment]  = rainbow_speed;
+            if (rainbow_width  >= 0) id(fx_rainbow_width)[segment]  = rainbow_width;
+            if (wipe_interval  >= 0) id(fx_wipe_interval)[segment]  = wipe_interval;
+            if (scan_interval  >= 0) id(fx_scan_interval)[segment]  = scan_interval;
+            if (scan_width     >= 0) id(fx_scan_width)[segment]     = scan_width;
+            if (blink_interval >= 0) id(fx_blink_interval)[segment] = blink_interval;
+
+            light::LightState *segs[10] = {
+              id(seg0), id(seg1), id(seg2), id(seg3), id(seg4),
+              id(seg5), id(seg6), id(seg7), id(seg8), id(seg9),
+            };
+            auto call = segs[segment]->turn_on();
+            if (brightness >= 0) {
+              int b = brightness > 255 ? 255 : brightness;
+              call.set_brightness(b / 255.0f);
+            }
+            if (red >= 0 && green >= 0 && blue >= 0) {
+              call.set_rgb((red   > 255 ? 255 : red)   / 255.0f,
+                           (green > 255 ? 255 : green) / 255.0f,
+                           (blue  > 255 ? 255 : blue)  / 255.0f);
+            }
+            std::string eff(effect.c_str(), effect.size());
+            if (!eff.empty())
+              call.set_effect(eff);
+            call.perform();
+
+            // Auto-off timer, keyed per segment so a new call re-arms it.
+            std::string off_key = "fxoff" + std::to_string(segment);
+            App.scheduler.cancel_timeout(id(led_strip), off_key);
+            if (duration >= 0) {
+              int seg = segment;
+              App.scheduler.set_timeout(id(led_strip), off_key,
+                                        (uint32_t) (duration * 1000.0f), [seg]() {
+                light::LightState *s[10] = {
+                  id(seg0), id(seg1), id(seg2), id(seg3), id(seg4),
+                  id(seg5), id(seg6), id(seg7), id(seg8), id(seg9),
+                };
+                s[seg]->turn_off().perform();
+              });
+            }
+
+mqtt:
+  broker: !secret mqtt_broker
+  username: !secret mqtt_username
+  password: !secret mqtt_password
+  discovery: false
+  discovery_object_id_generator: "device_name"
+  discovery_unique_id_generator: mac
+
+time:
+  - platform: sntp
+    id: sntp_time
+    servers:
+      - !secret ntp_server
+
+logger:
+  level: INFO
+  baud_rate: 0
+
+web_server:
+  port: 80
+
+# Per-segment effect parameters, index 0..9. Restored across reboots;
+# written by the set_effect_param API action.
+globals:
+  - id: fx_rainbow_speed
+    type: "std::array<float, 10>"
+    restore_value: true
+    initial_value: "{{10, 10, 10, 10, 10, 10, 10, 10, 10, 10}}"
+  - id: fx_rainbow_width
+    type: "std::array<float, 10>"
+    restore_value: true
+    initial_value: "{{50, 50, 50, 50, 50, 50, 50, 50, 50, 50}}"
+  - id: fx_wipe_interval
+    type: "std::array<float, 10>"
+    restore_value: true
+    initial_value: "{{100, 100, 100, 100, 100, 100, 100, 100, 100, 100}}"
+  - id: fx_scan_interval
+    type: "std::array<float, 10>"
+    restore_value: true
+    initial_value: "{{100, 100, 100, 100, 100, 100, 100, 100, 100, 100}}"
+  - id: fx_scan_width
+    type: "std::array<float, 10>"
+    restore_value: true
+    initial_value: "{{1, 1, 1, 1, 1, 1, 1, 1, 1, 1}}"
+  - id: fx_blink_interval
+    type: "std::array<float, 10>"
+    restore_value: true
+    initial_value: "{{500, 500, 500, 500, 500, 500, 500, 500, 500, 500}}"
+
+power_supply:
+  # GPIO12 gates 5V power to the strip (onboard MOSFET). It is also a
+  # strapping pin (MTDI / flash voltage select), so it must be low at
+  # boot -- power_supply keeps it low until a segment requests power
+  # (enable_on_boot defaults to false). enable_time lets the rail settle
+  # before pixels are written; keep_on_time debounces quick transitions.
+  - id: strip_psu
+    pin: GPIO12
+    enable_time: 20ms
+    keep_on_time: 2s
+
+light:
+  # Base strip. Not exposed on its own; the segments drive it.
+  - platform: esp32_rmt_led_strip
+    chipset: ws2812
+    rgb_order: GRB
+    pin: ${led_pin}
+    num_leds: ${led_count}
+    id: led_strip
+    internal: true
+    default_transition_length: 0ms
+
+  # Each segment ref-counts strip power via `power_supply: strip_psu` and
+  # exposes the four custom lambda effects (defined on seg0, aliased on
+  # the rest) plus the stock twinkle/fireworks/flicker effects.
+  #
+  # The lambda effects find their own segment index by matching `&it`
+  # against the partition outputs, so one lambda body serves all ten.
+  - platform: partition
+    name: seg0
+    id: seg0
+    default_transition_length: 0ms
+    power_supply: strip_psu
+    effects:
+      - addressable_lambda: &fx_rainbow
+          name: Rainbow
+          update_interval: 16ms
+          lambda: |-
+            static light::AddressableLight *outs[10] = {
+              static_cast<light::AddressableLight *>(id(seg0).get_output()),
+              static_cast<light::AddressableLight *>(id(seg1).get_output()),
+              static_cast<light::AddressableLight *>(id(seg2).get_output()),
+              static_cast<light::AddressableLight *>(id(seg3).get_output()),
+              static_cast<light::AddressableLight *>(id(seg4).get_output()),
+              static_cast<light::AddressableLight *>(id(seg5).get_output()),
+              static_cast<light::AddressableLight *>(id(seg6).get_output()),
+              static_cast<light::AddressableLight *>(id(seg7).get_output()),
+              static_cast<light::AddressableLight *>(id(seg8).get_output()),
+              static_cast<light::AddressableLight *>(id(seg9).get_output()),
+            };
+            int idx = 0;
+            for (int k = 0; k < 10; k++) if (outs[k] == &it) { idx = k; break; }
+            float sp = id(fx_rainbow_speed)[idx];
+            float wd = id(fx_rainbow_width)[idx];
+            if (!(sp > 0)) sp = 10;
+            if (!(wd >= 1)) wd = 50;
+            // sp/100 full color cycles per second; wd = LEDs spanning one cycle.
+            float base = fmodf((float) millis() * sp / 100000.0f, 1.0f);
+            float per_led = 1.0f / wd;
+            int j = 0;
+            for (auto view : it) {
+              float h = fmodf(base + per_led * j, 1.0f);
+              view.set(light::ESPHSVColor((uint8_t) (h * 255.0f), 240, 255).to_rgb());
+              j++;
+            }
+      - addressable_lambda: &fx_color_wipe
+          name: Color Wipe
+          update_interval: 16ms
+          lambda: |-
+            static light::AddressableLight *outs[10] = {
+              static_cast<light::AddressableLight *>(id(seg0).get_output()),
+              static_cast<light::AddressableLight *>(id(seg1).get_output()),
+              static_cast<light::AddressableLight *>(id(seg2).get_output()),
+              static_cast<light::AddressableLight *>(id(seg3).get_output()),
+              static_cast<light::AddressableLight *>(id(seg4).get_output()),
+              static_cast<light::AddressableLight *>(id(seg5).get_output()),
+              static_cast<light::AddressableLight *>(id(seg6).get_output()),
+              static_cast<light::AddressableLight *>(id(seg7).get_output()),
+              static_cast<light::AddressableLight *>(id(seg8).get_output()),
+              static_cast<light::AddressableLight *>(id(seg9).get_output()),
+            };
+            int idx = 0;
+            for (int k = 0; k < 10; k++) if (outs[k] == &it) { idx = k; break; }
+            float iv = id(fx_wipe_interval)[idx];
+            if (!(iv > 0)) iv = 100;
+            static uint32_t last[10] = {0};
+            static int pos[10] = {0};
+            static bool fill[10] = {false};
+            if (initial_run) { last[idx] = millis(); pos[idx] = 0; fill[idx] = true; }
+            if (millis() - last[idx] >= (uint32_t) iv) {
+              last[idx] += (uint32_t) iv;
+              pos[idx]++;
+              if (pos[idx] > it.size()) { pos[idx] = 0; fill[idx] = !fill[idx]; }
+            }
+            for (int j = 0; j < it.size(); j++) {
+              bool lit = fill[idx] ? (j < pos[idx]) : (j >= pos[idx]);
+              it[j] = lit ? current_color : Color::BLACK;
+            }
+      - addressable_lambda: &fx_scan
+          name: Scan
+          update_interval: 16ms
+          lambda: |-
+            static light::AddressableLight *outs[10] = {
+              static_cast<light::AddressableLight *>(id(seg0).get_output()),
+              static_cast<light::AddressableLight *>(id(seg1).get_output()),
+              static_cast<light::AddressableLight *>(id(seg2).get_output()),
+              static_cast<light::AddressableLight *>(id(seg3).get_output()),
+              static_cast<light::AddressableLight *>(id(seg4).get_output()),
+              static_cast<light::AddressableLight *>(id(seg5).get_output()),
+              static_cast<light::AddressableLight *>(id(seg6).get_output()),
+              static_cast<light::AddressableLight *>(id(seg7).get_output()),
+              static_cast<light::AddressableLight *>(id(seg8).get_output()),
+              static_cast<light::AddressableLight *>(id(seg9).get_output()),
+            };
+            int idx = 0;
+            for (int k = 0; k < 10; k++) if (outs[k] == &it) { idx = k; break; }
+            float iv = id(fx_scan_interval)[idx];
+            if (!(iv > 0)) iv = 100;
+            int w = (int) id(fx_scan_width)[idx];
+            if (w < 1) w = 1;
+            if (w > it.size()) w = it.size();
+            static uint32_t last[10] = {0};
+            static int pos[10] = {0};
+            static int dir[10] = {1};
+            if (initial_run) { last[idx] = millis(); pos[idx] = 0; dir[idx] = 1; }
+            if (millis() - last[idx] >= (uint32_t) iv) {
+              last[idx] += (uint32_t) iv;
+              pos[idx] += dir[idx];
+              int maxpos = (int) it.size() - w;
+              if (pos[idx] <= 0) { pos[idx] = 0; dir[idx] = 1; }
+              if (pos[idx] >= maxpos) { pos[idx] = maxpos; dir[idx] = -1; }
+            }
+            for (int j = 0; j < it.size(); j++)
+              it[j] = (j >= pos[idx] && j < pos[idx] + w) ? current_color : Color::BLACK;
+      - addressable_lambda: &fx_blink
+          name: Blink
+          update_interval: 16ms
+          lambda: |-
+            static light::AddressableLight *outs[10] = {
+              static_cast<light::AddressableLight *>(id(seg0).get_output()),
+              static_cast<light::AddressableLight *>(id(seg1).get_output()),
+              static_cast<light::AddressableLight *>(id(seg2).get_output()),
+              static_cast<light::AddressableLight *>(id(seg3).get_output()),
+              static_cast<light::AddressableLight *>(id(seg4).get_output()),
+              static_cast<light::AddressableLight *>(id(seg5).get_output()),
+              static_cast<light::AddressableLight *>(id(seg6).get_output()),
+              static_cast<light::AddressableLight *>(id(seg7).get_output()),
+              static_cast<light::AddressableLight *>(id(seg8).get_output()),
+              static_cast<light::AddressableLight *>(id(seg9).get_output()),
+            };
+            int idx = 0;
+            for (int k = 0; k < 10; k++) if (outs[k] == &it) { idx = k; break; }
+            float pf = id(fx_blink_interval)[idx];
+            uint32_t period = (pf >= 20.0f && pf < 100000.0f) ? (uint32_t) pf : 500;
+            static uint32_t last[10] = {0};
+            static bool phase_on[10] = {true};
+            if (initial_run) { last[idx] = millis(); phase_on[idx] = true; }
+            if (millis() - last[idx] >= period) { last[idx] += period; phase_on[idx] = !phase_on[idx]; }
+            it.all() = phase_on[idx] ? current_color : Color::BLACK;
+      - addressable_twinkle:
+      - addressable_random_twinkle:
+      - addressable_fireworks:
+      - addressable_flicker:
+    segments:
+      - { id: led_strip, from: 0, to: 5 }
+
+  - platform: partition
+    name: seg1
+    id: seg1
+    default_transition_length: 0ms
+    power_supply: strip_psu
+    effects: &seg_effects
+      - addressable_lambda: *fx_rainbow
+      - addressable_lambda: *fx_color_wipe
+      - addressable_lambda: *fx_scan
+      - addressable_lambda: *fx_blink
+      - addressable_twinkle:
+      - addressable_random_twinkle:
+      - addressable_fireworks:
+      - addressable_flicker:
+    segments:
+      - { id: led_strip, from: 6, to: 11 }
+
+  - platform: partition
+    name: seg2
+    id: seg2
+    default_transition_length: 0ms
+    power_supply: strip_psu
+    effects: *seg_effects
+    segments:
+      - { id: led_strip, from: 12, to: 17 }
+
+  - platform: partition
+    name: seg3
+    id: seg3
+    default_transition_length: 0ms
+    power_supply: strip_psu
+    effects: *seg_effects
+    segments:
+      - { id: led_strip, from: 18, to: 23 }
+
+  - platform: partition
+    name: seg4
+    id: seg4
+    default_transition_length: 0ms
+    power_supply: strip_psu
+    effects: *seg_effects
+    segments:
+      - { id: led_strip, from: 24, to: 29 }
+
+  - platform: partition
+    name: seg5
+    id: seg5
+    default_transition_length: 0ms
+    power_supply: strip_psu
+    effects: *seg_effects
+    segments:
+      - { id: led_strip, from: 30, to: 35 }
+
+  - platform: partition
+    name: seg6
+    id: seg6
+    default_transition_length: 0ms
+    power_supply: strip_psu
+    effects: *seg_effects
+    segments:
+      - { id: led_strip, from: 36, to: 41 }
+
+  - platform: partition
+    name: seg7
+    id: seg7
+    default_transition_length: 0ms
+    power_supply: strip_psu
+    effects: *seg_effects
+    segments:
+      - { id: led_strip, from: 42, to: 47 }
+
+  - platform: partition
+    name: seg8
+    id: seg8
+    default_transition_length: 0ms
+    power_supply: strip_psu
+    effects: *seg_effects
+    segments:
+      - { id: led_strip, from: 48, to: 53 }
+
+  - platform: partition
+    name: seg9
+    id: seg9
+    default_transition_length: 0ms
+    power_supply: strip_psu
+    effects: *seg_effects
+    segments:
+      - { id: led_strip, from: 54, to: 58 }
