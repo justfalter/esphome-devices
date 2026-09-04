@@ -17,9 +17,10 @@
 # parameters) in one call. See the `api:` block below for the fields.
 #
 # Companion file: office-desk-notifications.ha-script.yaml
-#   A Home Assistant script (script.office_desk_led_effect) that fronts the
-#   start_effect action with a documented form (dropdowns, sliders, units).
-#   Its field names map 1:1 to this action's `variables:`. If you add,
+#   HA scripts script.office_desk_notifications_start_effect (a documented
+#   form fronting the start_effect action) and
+#   script.office_desk_notifications_segment_off. Their `segment` field and
+#   the form fields map 1:1 to this action's `variables:`. If you add,
 #   rename, or re-range a variable below, update that file to match and
 #   re-import it into HA.
 

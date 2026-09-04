@@ -8,7 +8,8 @@
 # That action takes bare typed variables -- Home Assistant renders it as a
 # row of unlabeled fields with no ranges, no dropdowns, no units.
 #
-# This file wraps it in script.office_desk_led_effect, whose `fields:`
+# This file wraps it in script.office_desk_notifications_start_effect,
+# whose `fields:`
 # carry the names, descriptions, selectors, ranges and units. The script
 # body just forwards each field to the matching action variable, sending
 # -1 for anything left blank ("leave unchanged"). So:
@@ -30,17 +31,17 @@
 # Keep the two in sync: if a variable is added/renamed/re-ranged in the
 # firmware's `api:` block, mirror the change here and re-import.
 #
-# Already installed in HA (script.office_desk_led_effect,
-# script.office_desk_led_segment_off). This file is the source of record;
-# re-import it if you rebuild HA:
+# Already installed in HA (script.office_desk_notifications_start_effect,
+# script.office_desk_notifications_segment_off). This file is the source of
+# record; re-import it if you rebuild HA:
 #
 #   homeassistant:
 #     packages:
 #       office_desk_led: !include office-desk-notifications.ha-script.yaml
 
 script:
-  office_desk_led_effect:
-    alias: Office desk LED - start effect
+  office_desk_notifications_start_effect:
+    alias: Office desk notifications - start effect
     description: >-
       Configure and start one LED segment (colour, brightness, effect and
       all effect parameters) in a single call, optionally for a fixed time.
@@ -133,22 +134,24 @@ script:
           blink_interval: "{{ blink_interval | default(-1, true) | float }}"
           duration: "{{ duration | default(-1, true) | float }}"
 
-  office_desk_led_segment_off:
-    alias: Office desk LED - turn segment off
-    description: Turn a single LED segment off.
+  office_desk_notifications_segment_off:
+    alias: Office desk notifications - turn segment off
+    description: >-
+      Turn a single LED segment off. Segment is the 0-9 index, matching
+      office_desk_notifications_start_effect.
     mode: parallel
     max: 10
     fields:
       segment:
         name: Segment
-        description: Which LED segment light to turn off.
+        description: Which segment to turn off (0 = nearest the controller).
         required: true
+        example: 3
         selector:
-          entity:
-            filter:
-              - integration: esphome
-                domain: light
+          number: { min: 0, max: 9, step: 1, mode: box }
     sequence:
+      # Template in target.entity_id trips the best-practice linter, but the
+      # 0-9 selector keeps it bounded and seg0..seg9 always exist.
       - action: light.turn_off
         target:
-          entity_id: "{{ segment }}"
+          entity_id: "light.office_desk_notifications_seg{{ segment | int }}"
