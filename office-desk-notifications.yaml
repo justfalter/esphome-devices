@@ -96,7 +96,7 @@ api:
       then:
         - lambda: |-
             if (segment < 0 || segment > 9) {
-              ESP_LOGW("fx", "start_effect: bad segment %d", segment);
+              ESP_LOGW("fx", "start_effect: bad segment %d", (int) segment);
               return;
             }
             if (rainbow_speed  >= 0) id(fx_rainbow_speed)[segment]  = rainbow_speed;
@@ -127,10 +127,10 @@ api:
 
             // Auto-off timer, keyed per segment so a new call re-arms it.
             std::string off_key = "fxoff" + std::to_string(segment);
-            App.scheduler.cancel_timeout(id(led_strip), off_key);
+            App.scheduler.cancel_timeout(id(led_strip), off_key.c_str());
             if (duration >= 0) {
               int seg = segment;
-              App.scheduler.set_timeout(id(led_strip), off_key,
+              App.scheduler.set_timeout(id(led_strip), off_key.c_str(),
                                         (uint32_t) (duration * 1000.0f), [seg]() {
                 light::LightState *s[10] = {
                   id(seg0), id(seg1), id(seg2), id(seg3), id(seg4),
@@ -160,6 +160,10 @@ logger:
 
 web_server:
   port: 80
+
+button:
+  - platform: restart
+    name: Restart
 
 # Per-segment effect parameters, index 0..9. Restored across reboots;
 # written by the set_effect_param API action.
