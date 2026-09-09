@@ -125,12 +125,13 @@ api:
               call.set_effect(eff);
             call.perform();
 
-            // Auto-off timer, keyed per segment so a new call re-arms it.
-            std::string off_key = "fxoff" + std::to_string(segment);
-            App.scheduler.cancel_timeout(id(led_strip), off_key.c_str());
+            // Auto-off timer, keyed per segment (by LightState pointer) so a
+            // new call re-arms it.
+            void *off_key = segs[segment];
+            App.scheduler.cancel_timeout(off_key);
             if (duration >= 0) {
               int seg = segment;
-              App.scheduler.set_timeout(id(led_strip), off_key.c_str(),
+              App.scheduler.set_timeout(off_key,
                                         (uint32_t) (duration * 1000.0f), [seg]() {
                 light::LightState *s[10] = {
                   id(seg0), id(seg1), id(seg2), id(seg3), id(seg4),
